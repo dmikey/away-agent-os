@@ -1,0 +1,17 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "Away OS",
+  "outputfilename": "Away OS",
+  "frontend:dir": "frontend",
+  "frontend:install": "pnpm install --frozen-lockfile",
+  "frontend:build": "pnpm run build",
+  "author": {
+    "name": "Derek Anderson"
+  },
+  "info": {
+    "companyName": "Rad Ninja",
+    "productName": "Away OS",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright 2026 Derek Anderson"
+  }
+}

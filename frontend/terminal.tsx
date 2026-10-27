@@ -1,0 +1,10 @@
+import {useEffect,useState} from 'react';
+import {command,readSpace} from './store';
+import {native} from './native';
+export function Terminal(){
+ const [source,setSource]=useState('pwd\nls -la'),[runs,setRuns]=useState<any[]>([]),[error,setError]=useState('');
+ useEffect(()=>{const poll=()=>readSpace().then(({state})=>setRuns(state.workbench.runs.filter(r=>r.language==='shell'))).catch(()=>{});poll();const timer=setInterval(poll,1200);return()=>clearInterval(timer)},[]);
+ const run=async()=>{setError('');try{await command('sandbox_shell',{command:source},'you')}catch(e){setError(String(e))}};
+ const busy=runs.some(r=>r.status==='queued'||r.status==='running');
+ return <div className="native-terminal"><p>A shell inside your dedicated Linux VM. Files under /workspace are shared with Away’s editors. Host processes and directories are not exposed.</p><textarea aria-label="Sandbox shell command" spellCheck={false} value={source} onChange={e=>setSource(e.target.value)} onKeyDown={e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter'){e.preventDefault();run()}}}/><div><small>Linux shell · /workspace · Go-controlled network proxy</small>{busy?<button className="native-button" onClick={()=>{const active=runs.find(r=>r.status==='running'||r.status==='queued');if(active)native().CancelRequest('vm:'+active.id).catch(()=>{});command('notebook_cancel',{}).catch(()=>{})}}>Stop</button>:<button className="native-button accent" onClick={run} disabled={!source.trim()}>Run in VM</button>}</div>{error&&<p role="alert">{error}</p>}<div className="native-terminal-output">{runs.length?runs.map(r=><section key={r.id}><header><span>{r.status==='running'?'Running in Linux VM':r.status}</span><time>{new Date(r.at).toLocaleTimeString()}</time></header><pre className="native-terminal-source">$ {r.source}</pre><pre>{r.output||(r.status==='queued'?'Starting the isolated runtime…':'')}</pre></section>):<small>Run a command to see output here. Agents use the same sandbox_shell tool.</small>}</div></div>;
+}

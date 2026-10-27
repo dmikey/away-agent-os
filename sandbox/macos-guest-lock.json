@@ -1,0 +1,20 @@
+{
+  "arch": "arm64",
+  "assets": [
+    {
+      "name": "alpine-minirootfs-3.23.7-aarch64.tar.gz",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/releases/aarch64/alpine-minirootfs-3.23.7-aarch64.tar.gz",
+      "sha256": "7dcc7420bcc426a615c0512cc85b4a52e9f89df9c600b93ce78d22e0e9234891"
+    },
+    {
+      "name": "linux-virt-6.18.59-r0.apk",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/aarch64/linux-virt-6.18.59-r0.apk",
+      "sha256": "547fc274a1236d84e8b3c4467600b0bebf36ec723fa95569a02fe72b733d24be"
+    },
+    {
+      "name": "cpython-3.12.16+20261026-aarch64-unknown-linux-musl-install_only_stripped.tar.gz",
+      "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.12.16%2B20261026-aarch64-unknown-linux-musl-install_only_stripped.tar.gz",
+      "sha256": "e113f8b1f02cb886ed40ee5ea6665cd407f4e7b6e2097f61c0b3cdf8c1776c65"
+    }
+  ]
+}

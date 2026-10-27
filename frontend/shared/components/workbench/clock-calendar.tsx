@@ -1,0 +1,15 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import {ChevronLeft,ChevronRight} from 'lucide-react';
+const sameDay=(a:Date,b:Date)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
+const dateLabel=(date:Date)=>date.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+export function ClockCalendar({clock}:{clock:string}){
+ const [open,setOpen]=useState(false),[month,setMonth]=useState(()=>new Date()),[selected,setSelected]=useState(()=>new Date()),[today,setToday]=useState(()=>new Date());
+ const root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null);
+ useEffect(()=>{if(!open)return;setToday(new Date());const outside=(e:PointerEvent)=>{if(!root.current?.contains(e.target as Node))setOpen(false)};const escape=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();setOpen(false);trigger.current?.focus()}};document.addEventListener('pointerdown',outside);document.addEventListener('keydown',escape,true);return()=>{document.removeEventListener('pointerdown',outside);document.removeEventListener('keydown',escape,true)}},[open]);
+ const moveMonth=(delta:number)=>setMonth(d=>new Date(d.getFullYear(),d.getMonth()+delta,1));
+ const goToday=()=>{const now=new Date();setToday(now);setSelected(now);setMonth(now)};
+ const start=new Date(month.getFullYear(),month.getMonth(),1).getDay(),count=new Date(month.getFullYear(),month.getMonth()+1,0).getDate();
+ const choose=(date:Date)=>{setSelected(date);setMonth(new Date(date.getFullYear(),date.getMonth(),1))};
+ return <div className="clock-calendar" ref={root}><button ref={trigger} className={'clock-button '+(open?'clock-open':'')} aria-label="Open calendar" aria-haspopup="dialog" aria-expanded={open} aria-controls="desktop-calendar" onClick={()=>{if(!open)goToday();setOpen(v=>!v)}}><time>{clock||' '}</time></button>{open&&<section id="desktop-calendar" className="calendar-popover" role="dialog" aria-label="Calendar"><div className="calendar-month"><h2 aria-live="polite" aria-label={month.toLocaleDateString(undefined,{month:'long',year:'numeric'})}>{month.toLocaleDateString(undefined,{month:'long'})}</h2><button aria-label="Previous month" onClick={()=>moveMonth(-1)}><ChevronLeft size={14}/></button><button aria-label="Next month" onClick={()=>moveMonth(1)}><ChevronRight size={14}/></button></div><div className="calendar-weekdays" aria-hidden="true">{['S','M','T','W','T','F','S'].map((d,i)=><span key={i}>{d}</span>)}</div><div className="calendar-days">{Array.from({length:start},(_,i)=><span key={'empty-'+i}/>)}{Array.from({length:count},(_,i)=>{const date=new Date(month.getFullYear(),month.getMonth(),i+1);return <button key={i} aria-label={dateLabel(date)} aria-current={sameDay(date,today)?'date':undefined} aria-pressed={sameDay(date,selected)} className={(sameDay(date,today)?'is-today ':'')+(sameDay(date,selected)?'is-selected':'')} onClick={()=>choose(date)}>{i+1}</button>})}</div></section>}</div>;
+}
