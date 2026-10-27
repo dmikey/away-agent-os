@@ -2,7 +2,7 @@
 
 A shared productivity desktop for working **with** agents: rooms, conversations, code, notebooks, drafts, files and visible work. React runs in a native Wails window; Go owns local persistence and the execution boundary.
 
-This repository currently focuses on **Apple Silicon macOS**. The hosted Away site remains a separate Cloudflare application; this desktop build has its own local workspace and does not synchronize with it yet.
+Away OS runs locally on **Apple Silicon macOS**, with a shared workspace for you and your agents.
 
 ## What works
 
