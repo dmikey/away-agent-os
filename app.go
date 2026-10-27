@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -17,9 +15,11 @@ import (
 	"time"
 
 	"encoding/base64"
+	"github.com/dmikey/away-agent-os/desktop/internal/credentials"
 	"github.com/dmikey/away-agent-os/desktop/internal/gateway"
 	"github.com/dmikey/away-agent-os/desktop/internal/guestproto"
 	"github.com/dmikey/away-agent-os/desktop/internal/macvm"
+	"github.com/dmikey/away-agent-os/desktop/internal/provider"
 	"github.com/dmikey/away-agent-os/desktop/internal/state"
 	"unicode/utf8"
 )
@@ -243,50 +243,32 @@ func (a *App) CancelRequest(id string) {
 	}
 }
 
-type ProviderResponse struct {
-	Status int    `json:"status"`
-	Body   string `json:"body"`
+// Provider credentials remain in Keychain; only connection metadata reaches React.
+func (a *App) ProviderStatus() map[string]bool {
+	return (provider.Client{Vault: credentials.Keychain{}}).Status()
+}
+func (a *App) ConnectProvider(name, key string) (provider.Connection, error) {
+	ctx, cancel := context.WithTimeout(a.ctx, 20*time.Second)
+	defer cancel()
+	return (provider.Client{Vault: credentials.Keychain{}}).Connect(ctx, name, key)
 }
 
-// Complete calls one fixed provider endpoint; keys live in memory and are never saved to the workspace.
-func (a *App) Complete(id, key, body string) (ProviderResponse, error) {
-	if len(body) > 4*1024*1024 || !json.Valid([]byte(body)) {
-		return ProviderResponse{}, errors.New("Invalid provider request")
-	}
-	if strings.TrimSpace(key) == "" {
-		return ProviderResponse{}, errors.New("Connect a session API key in agent settings")
-	}
+// Complete preserves compatibility with earlier bundled clients.
+func (a *App) Complete(id, key, body string) (provider.Response, error) {
+	return a.CompleteProvider(id, "OpenAI", key, body)
+}
+func (a *App) CompleteProvider(id, name, key, body string) (provider.Response, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 45*time.Second)
 	defer cancel()
 	a.mu.Lock()
 	if _, exists := a.requests[id]; exists {
 		a.mu.Unlock()
-		return ProviderResponse{}, errors.New("Duplicate request")
+		return provider.Response{}, errors.New("Duplicate request")
 	}
 	a.requests[id] = cancel
 	a.mu.Unlock()
 	defer func() { a.mu.Lock(); delete(a.requests, id); a.mu.Unlock() }()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", strings.NewReader(body))
-	if err != nil {
-		return ProviderResponse{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: 46 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("Provider redirect rejected") }}
-	res, err := client.Do(req)
-	if err != nil {
-		return ProviderResponse{}, errors.New("Provider connection failed or was cancelled")
-	}
-	defer res.Body.Close()
-	b, err := io.ReadAll(io.LimitReader(res.Body, 4*1024*1024+1))
-	if err != nil || len(b) > 4*1024*1024 {
-		return ProviderResponse{}, errors.New("Provider response too large")
-	}
-	// Suppress provider error bodies, which can contain request details.
-	if res.StatusCode >= 400 {
-		b = []byte(`{"error":"Provider request failed"}`)
-	}
-	return ProviderResponse{Status: res.StatusCode, Body: string(b)}, nil
+	return (provider.Client{Vault: credentials.Keychain{}}).Complete(ctx, name, key, body)
 }
 
 // Network policy is a human-facing native setting; no agent tool can change it.

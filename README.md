@@ -4,9 +4,15 @@ A shared productivity desktop for working **with** agents: rooms, conversations,
 
 Away OS runs locally on **Apple Silicon macOS**, with a shared workspace for you and your agents.
 
+## First launch
+
+Away welcomes new workspaces with a four-step setup: choose OpenAI, Anthropic, or xAI; follow the provider’s key link and connect an API key; name your first agent and select an available model; then choose a working style and refine their instructions. Keys are saved in macOS Keychain, separate from workspace files. API usage is billed by your provider.
+
+Setup opens only Messenger, directly in a conversation with your new agent. Other apps are available from the Dock. Setup runs once per new workspace; existing agents and window layouts are preserved.
+
 ## What works
 
-- ICQ-inspired messenger, agent definitions, rooms, and per-session provider keys.
+- ICQ-inspired messenger, agent definitions, rooms, and Keychain-backed provider connections.
 - Draggable/resizable windows, active-app menus, Dock, boot screen, and calendar.
 - Shared virtual filesystem and Explorer, local-file import, Code, Writer, scratchpad and `.ipynb` editing.
 - Python files and notebook cells execute inside a dedicated Linux VM for each actor. An actor’s code and notebooks share Python variables; other actors have separate kernels.
@@ -58,7 +64,7 @@ Set `AWAY_SMOKE_TEST=1` and `AWAY_DATA_DIR` to a temporary directory when launch
 
 ## Data and limits
 
-Local state is stored at `~/Library/Application Support/Away OS/workspace.json`, with owner-only permissions and atomic revision-checked saves. It is plaintext JSON, not application-level encrypted storage. API keys stay in the current UI session and provider calls use a fixed Go-mediated OpenAI endpoint; keys do not enter the VM or workspace file. Google Colab is not enabled in the macOS build.
+Local state is stored at `~/Library/Application Support/Away OS/workspace.json`, with owner-only permissions and atomic revision-checked saves. It is plaintext JSON, not application-level encrypted storage. Provider keys are stored in macOS Keychain. OpenAI, Anthropic, and xAI calls use fixed Go-mediated endpoints; keys do not enter the VM or workspace file. Google Colab is not enabled in the macOS build.
 
 The inherited virtual filesystem currently supports 256 entries and 2.4 MB encoded storage. Individual exports are bounded; failed/oversized exports do not infer deletions. Concurrent edits preserve newer files and recover guest versions under `/workspace/Conflicts/<run-id>`. Guest disks are ephemeral: only validated, synchronized virtual workspace files persist. Initial guest Python includes the standard library; installing arbitrary native packages is not implemented.
 

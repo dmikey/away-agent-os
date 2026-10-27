@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Away first-run test fixture</title></head><body><div id="root"></div><script>
+// Browser-only test fixture. Not included in the production Vite entry or app bundle.
+let snapshot=JSON.parse(sessionStorage.getItem('away-fixture')||'null')||{state:null,revision:-1};const connected=JSON.parse(sessionStorage.getItem('away-fixture-providers')||'{}');
+window.go={main:{App:{
+ async ReadWorkspace(){return structuredClone(snapshot)},
+ async CommitWorkspace(revision,json){if(revision!==snapshot.revision)throw Error('Revision conflict');snapshot={state:JSON.parse(json),revision:revision+1};sessionStorage.setItem('away-fixture',JSON.stringify(snapshot));return structuredClone(snapshot)},
+ async ProviderStatus(){return connected},async SandboxStatus(){return {available:false,reason:'Browser test fixture; execution unavailable.'}},
+ async OpenExternal(url){window.fixtureExternalURL=url},async FrontendReady(){window.fixtureReady=true},
+ async ConnectProvider(provider,key){if(key==='invalid')throw Error('Invalid key');connected[provider]=true;sessionStorage.setItem('away-fixture-providers',JSON.stringify(connected));return {models:[{OpenAI:'gpt-4.1-mini',Anthropic:'claude-sonnet-fixture',xAI:'grok-fixture'}[provider]]}},
+ async CompleteProvider(){return {status:200,body:JSON.stringify({choices:[{message:{content:'Fixture reply: your agent is connected.'}}]})}},
+ async CancelRequest(){},async NetworkPolicies(){return {}},async NetworkEvents(){return []}
+}}};
+</script><script type="module" src="/main.tsx"></script></body></html>

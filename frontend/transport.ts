@@ -16,11 +16,12 @@ export function installTransport(){
  return Response.json({error:'Unknown desktop endpoint'},{status:404});
  }catch(e){return Response.json({error:String(e)},{status:500})}
  }
- if(url.href==='https://api.openai.com/v1/chat/completions'){
+ const provider=({'https://api.openai.com/v1/chat/completions':'OpenAI','https://api.anthropic.com/v1/chat/completions':'Anthropic','https://api.x.ai/v1/chat/completions':'xAI'} as Record<string,string>)[url.href];
+ if(provider){
  const req=new Request(url,input instanceof Request?input:init);const id=crypto.randomUUID();
  if(req.signal.aborted)throw new DOMException('Cancelled','AbortError');
  const abort=()=>{native().CancelRequest(id).catch(()=>{})};req.signal.addEventListener('abort',abort,{once:true});
- try{const result=await native().Complete(id,req.headers.get('Authorization')?.replace(/^Bearer /,'')||'',await req.text());if(req.signal.aborted)throw new DOMException('Cancelled','AbortError');return new Response(result.body,{status:result.status,headers:{'Content-Type':'application/json'}})}finally{req.signal.removeEventListener('abort',abort)}
+ try{const result=await native().CompleteProvider(id,provider,req.headers.get('Authorization')?.replace(/^Bearer(?:\s+|$)/i,'')||'',await req.text());if(req.signal.aborted)throw new DOMException('Cancelled','AbortError');return new Response(result.body,{status:result.status,headers:{'Content-Type':'application/json'}})}finally{req.signal.removeEventListener('abort',abort)}
  }
  return original(input,init);
  }) as typeof fetch;
