@@ -1,0 +1,12 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';import ts from '../frontend/node_modules/typescript/lib/typescript.js';
+const module={exports:{}};vm.runInNewContext('(function(module,exports){'+ts.transpileModule(fs.readFileSync('frontend/shared/lib/windows.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText+'\n})',{Number,String,Error})(module,module.exports);
+const {WindowIntents,changeWindow}=module.exports;
+const base={chat:{open:false,x:0,y:0},code:{open:true,x:12,y:24}};const queue=new WindowIntents();
+const open=queue.add({window:'chat',action:'show'});assert.equal(queue.project(base).chat.open,true,'open must render before any server response');
+const close=queue.add({window:'chat',action:'close'});assert.equal(queue.project(base).chat.open,false,'latest click must win');
+queue.settle(open);const ackOpen={...base,chat:changeWindow(base.chat,{action:'show'})};assert.equal(queue.project(ackOpen).chat.open,false,'an old acknowledgment must not reopen the window');
+const reopen=queue.add({window:'chat',action:'show'});queue.settle(close);const ackClose={...ackOpen,chat:changeWindow(ackOpen.chat,{action:'close'})};assert.equal(queue.project(ackClose).chat.open,true,'reopen must survive a delayed close acknowledgment');queue.settle(reopen);
+const failed=queue.add({window:'code',action:'hide'});assert.equal(queue.project(base).code.hidden,true);queue.settle(failed);assert.equal(queue.project(base).code.hidden,undefined,'a failed save must roll back to the authoritative state');
+const move=queue.add({window:'code',x:80,y:120});const minimize=queue.add({window:'chat',action:'minimize'});const projected=queue.project(base);assert.equal(projected.code.x,80);assert.equal(projected.code.y,120);assert.equal(projected.chat.minimized,true);assert.equal(base.code.x,12,'projection must not mutate polling snapshots');queue.settle(move);queue.settle(minimize);
+assert.equal(changeWindow(base.chat,{width:0,height:99999}).width,240);assert.equal(changeWindow(base.chat,{width:0,height:99999}).height,1600);assert.throws(()=>changeWindow(base.chat,{action:'invalid'}));
+console.log('Window intent tests passed: immediate feedback, rapid close/reopen, stale acknowledgments, rollback, independent windows, geometry and validation.');
