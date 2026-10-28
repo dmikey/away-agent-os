@@ -373,3 +373,55 @@ func (a *App) OpenExternal(raw string) error {
 	wailsruntime.BrowserOpenURL(a.ctx, u.String())
 	return nil
 }
+
+// Requests may be queued by agents. Only the human review UI exposes resolution.
+func (a *App) RequestNetworkAccess(actor, rawURL, reason string) (gateway.AccessRequest, error) {
+	if a.vms == nil {
+		return gateway.AccessRequest{}, errors.New("Sandbox unavailable")
+	}
+	if actor != "you" {
+		snapshot, e := a.store.Read()
+		if e != nil {
+			return gateway.AccessRequest{}, e
+		}
+		var s struct {
+			Agents []struct {
+				ID string `json:"id"`
+			} `json:"agents"`
+		}
+		json.Unmarshal(snapshot.State, &s)
+		found := false
+		for _, agent := range s.Agents {
+			if agent.ID == actor {
+				found = true
+			}
+		}
+		if !found {
+			return gateway.AccessRequest{}, errors.New("Unknown agent")
+		}
+	}
+	return a.vms.Gateway.RequestAccess(a.ctx, actor, rawURL, reason)
+}
+func (a *App) NetworkAccessRequests() []gateway.AccessRequest {
+	if a.vms == nil {
+		return []gateway.AccessRequest{}
+	}
+	return a.vms.Gateway.AccessRequests()
+}
+func (a *App) ResolveNetworkAccess(id string, allow bool) (gateway.AccessRequest, error) {
+	if a.vms == nil {
+		return gateway.AccessRequest{}, errors.New("Sandbox unavailable")
+	}
+	return a.vms.Gateway.ResolveAccess(id, allow)
+}
+func (a *App) WaitNetworkAccess(id string) (gateway.AccessRequest, error) {
+	if a.vms == nil {
+		return gateway.AccessRequest{}, errors.New("Sandbox unavailable")
+	}
+	return a.vms.Gateway.WaitAccess(a.ctx, id)
+}
+func (a *App) CancelNetworkAccess(actor, id string) {
+	if a.vms != nil {
+		a.vms.Gateway.CancelAccess(actor, id)
+	}
+}

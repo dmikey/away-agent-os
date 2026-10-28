@@ -1,0 +1,13 @@
+import {useEffect,useRef,useState} from 'react';
+import {Globe2,ShieldCheck,ArrowUpRight} from 'lucide-react';
+import {native,type NetworkAccessRequest} from './native';
+import {readSpace} from './store';
+export function NetworkApproval(){
+ const [requests,setRequests]=useState<NetworkAccessRequest[]>([]),[names,setNames]=useState<Record<string,string>>({}),[busy,setBusy]=useState(false),[error,setError]=useState('');const allow=useRef<HTMLButtonElement>(null);
+ useEffect(()=>{let alive=true;const poll=async()=>{try{const r=await native().NetworkAccessRequests();if(alive)setRequests(r.sort((a,b)=>a.created-b.created))}catch{}};poll();readSpace().then(({state})=>{if(alive)setNames(Object.fromEntries(state.agents.map(a=>[a.id,a.name])))}).catch(()=>{});const timer=setInterval(poll,750);return()=>{alive=false;clearInterval(timer)}},[]);
+ const request=requests[0];
+ useEffect(()=>{setError('');if(!request)return;readSpace().then(({state})=>setNames(Object.fromEntries(state.agents.map(a=>[a.id,a.name])))).catch(()=>{})},[request?.id]);
+ if(!request)return null;
+ const resolve=async(approved:boolean)=>{setBusy(true);setError('');try{await native().ResolveNetworkAccess(request.id,approved);setRequests(r=>r.filter(x=>x.id!==request.id))}catch(e){setError(String(e))}finally{setBusy(false)}};
+ return <aside className="network-approval-card" role="dialog" aria-modal="false" aria-labelledby="network-approval-heading"><div className="network-approval-top"><span className="network-approval-icon"><Globe2 size={20}/></span><span><small>NETWORK ACCESS{requests.length>1?' · '+requests.length+' WAITING':''}</small><h3 id="network-approval-heading">{names[request.actor]||'Connected agent'} wants to visit</h3></span></div><strong className="network-approval-host">{request.host}</strong><p>{request.reason}</p><button className="network-approval-url" title="Open the requested page in your browser" disabled={!request.url.startsWith('https:')} onClick={()=>native().OpenExternal(request.url).catch(e=>setError(String(e)))}>{request.url}<ArrowUpRight size={12}/></button><div className="network-approval-scope"><ShieldCheck size={14}/><span>Allow this exact domain for this agent’s sandbox and web tools until Away quits. Other domains stay blocked. You can revoke access in Local runtime → Network.</span></div><small className="network-approval-wait">The agent is paused here. Approval resumes its work.</small>{error&&<p role="alert" className="network-approval-error">{error}</p>}<footer><button className="native-button" disabled={busy} onClick={()=>resolve(false)}>Deny</button><button ref={allow} className="native-button accent" disabled={busy} onClick={()=>resolve(true)}>{busy?'Updating…':'Allow for this session'}</button></footer></aside>
+}

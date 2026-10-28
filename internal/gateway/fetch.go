@@ -13,10 +13,11 @@ import (
 )
 
 type Fetched struct {
-	Text        string `json:"text"`
-	ContentType string `json:"contentType"`
-	Status      int    `json:"status"`
-	Truncated   bool   `json:"truncated"`
+	Links       []string `json:"links,omitempty"`
+	Text        string   `json:"text"`
+	ContentType string   `json:"contentType"`
+	Status      int      `json:"status"`
+	Truncated   bool     `json:"truncated"`
 }
 
 // Fetch lets agents request bounded readable text. TLS terminates for this explicit fetch only, never by interception.
@@ -76,6 +77,8 @@ func (p *Proxy) Fetch(ctx context.Context, actor, rawURL string, maxChars int) (
 	if !strings.HasPrefix(contentType, "text/") && !strings.Contains(contentType, "json") {
 		return Fetched{}, errors.New("Text fetch supports text, HTML and JSON; download binary assets inside the VM")
 	}
+	links := []string{}
+	seenLinks := map[string]bool{}
 	text := string(body)
 	if strings.Contains(contentType, "html") {
 		tokenizer := html.NewTokenizer(strings.NewReader(text))
@@ -88,8 +91,28 @@ func (p *Proxy) Fetch(ctx context.Context, actor, rawURL string, maxChars int) (
 			}
 			switch token {
 			case html.StartTagToken, html.EndTagToken:
-				tag, _ := tokenizer.TagName()
+				tag, attrs := tokenizer.TagName()
 				name := string(tag)
+				if name == "a" && token == html.StartTagToken && skip == 0 && len(links) < 40 {
+					for attrs {
+						key, value, more := tokenizer.TagAttr()
+						attrs = more
+						if string(key) != "href" {
+							continue
+						}
+						ref, err := url.Parse(string(value))
+						if err != nil {
+							continue
+						}
+						link := u.ResolveReference(ref)
+						link.Fragment = ""
+						h := strings.ToLower(link.Hostname())
+						if (link.Scheme == "https" || link.Scheme == "http") && link.User == nil && len(link.String()) <= 2000 && domainPattern.MatchString(h) && net.ParseIP(h) == nil && !strings.HasSuffix(h, ".local") && !strings.HasSuffix(h, ".internal") && !seenLinks[link.String()] {
+							links = append(links, link.String())
+							seenLinks[link.String()] = true
+						}
+					}
+				}
 				if name == "script" || name == "style" || name == "noscript" {
 					if token == html.StartTagToken {
 						skip++
@@ -117,5 +140,5 @@ func (p *Proxy) Fetch(ctx context.Context, actor, rawURL string, maxChars int) (
 		text = string(runes[:maxChars])
 		truncated = true
 	}
-	return Fetched{Text: text, ContentType: contentType, Status: response.StatusCode, Truncated: truncated}, nil
+	return Fetched{Links: links, Text: text, ContentType: contentType, Status: response.StatusCode, Truncated: truncated}, nil
 }

@@ -32,6 +32,7 @@ type Event struct {
 	Bytes    int64  `json:"bytes"`
 }
 type Proxy struct {
+	access   map[string]*accessPending
 	contexts map[string]map[string]context.CancelFunc
 	mu       sync.Mutex
 	policies map[string][]string

@@ -12,6 +12,27 @@ Setup opens only Messenger, directly in a conversation with your new agent. Othe
 
 Manage agents in **Messenger → Chat settings → Agents**, or use the settings button beside **AGENTS** in the sidebar. Add, edit, or remove profiles there; double-clicking a sidebar agent also opens its editor. Removing a profile keeps workspace files, messages, and provider credentials. Older untouched, unused Milo/Fern/Otto starter profiles are retired automatically; edited, chosen, or used profiles are preserved.
 
+## Agent recipes
+
+Open **Messenger → Chat settings → Agents → New agent → Recipes**. Choose CISO, CTO, CEO, SEO, Researcher, or Marketer, then review their name, provider/model, `agents.md` and `skills.md` before saving. Recipes are also available in the first-run working-style step. They create one editable agent using your selected connection; they do not install sample agents automatically.
+
+| Recipe | Typical work |
+| --- | --- |
+| CISO | Evidence-based risk registers, threat models, scoped security reviews |
+| CTO | Architecture decisions, local prototypes, technical roadmaps |
+| CEO | Decision briefs, operating plans, supplied-metrics analysis |
+| SEO | Approved-site text audits, content briefs, metadata recommendations |
+| Researcher | Source-backed briefs, evidence tables, reproducible data analysis |
+| Marketer | Positioning, campaign drafts, experiment plans |
+
+All roles can use the existing workspace tools: shared files, Writer, Code, Python notebooks, the isolated guest shell, rooms and bounded web fetching. Recipes include concrete tool workflows and role limits. No publishing, ad buying, search-console access or private integrations are implied.
+
+## URL access requests
+
+An agent calls `network_request` with a URL and reason. A compact approval card shows who is asking, the exact domain, the page path, the reason and the scope. **Allow for this session** adds that domain only to that actor's Go gateway policy, for both `web_fetch` and guest VM HTTP(S). The waiting turn resumes automatically. **Deny** grants nothing; stopped turns cancel pending requests and unanswered requests expire after three minutes. Requests are deduplicated and bounded. Agents have no approval/policy-setting tool.
+
+Unapproved `web_fetch` calls also trigger this flow. Fetch results contain bounded text and up to 40 HTTP(S) source links; links are not fetched or approved automatically. Approvals do not include subdomains, other agents or future app sessions. Revoke a domain in **Local runtime → Network**. The existing private-address, metadata, host-address, DNS pinning, size, connection and rate limits still apply after approval. Queries and fragments are omitted from approval-card records.
+
 ## What works
 
 - ICQ-inspired messenger, agent definitions, rooms, and Keychain-backed provider connections.

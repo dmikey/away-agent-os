@@ -135,3 +135,31 @@ bindings.CompleteProvider=async(id,provider,key,body)=>{const req=JSON.parse(bod
 };
 response=await window.fetch('/api/run',{method:'POST',body:JSON.stringify({agentId:writingAgent,channel:writingAgent})});assert(response.ok,await response.text());assert.equal(recoveryStep,4);assert.equal(snapshot.state.workbench.fs.entries.find(e=>e.path===originalDocument.path).content,originalDocument.html);
 console.log('Writer tool conflicts return current metadata and safe recovery instructions; a retry can create a separate draft without asking the user or overwriting existing work.');
+
+const {agentRecipes,agentFromRecipe}=load('frontend/agent-recipes.ts');
+assert.deepEqual(Array.from(agentRecipes,r=>r.name),['CISO','CTO','CEO','SEO','Researcher','Marketer']);
+for(const recipe of agentRecipes){const a=agentFromRecipe(recipe.id,{provider:'Anthropic',model:'saved-model'});assert.equal(a.provider,'Anthropic');assert.equal(a.model,'saved-model');assert(a.instructions.length>500);assert(a.skills.includes('network_request'));assert(a.skills.includes('mode:create'));assert(a.skills.includes('sandbox_shell'));assert(recipe.outputs.length>=3);assert(a.instructions.length<12000&&a.skills.length<12000)}
+assert.throws(()=>agentFromRecipe('missing',{provider:'OpenAI',model:'test'}),/Unknown/);
+snapshot={state:initialSpace(),revision:0};await command('agent_save',{agent:agentFromRecipe('researcher',{provider:'OpenAI',model:'test'})});const recipeActor=snapshot.state.agents[0].id;assert.equal(snapshot.state.agents.length,1);
+let grantStatus='pending',waitResolve,fetchCalls=0,pendingId='',requestCalls=0;
+bindings.RequestNetworkAccess=async(actor,url,reason)=>{assert.equal(actor,recipeActor);assert(reason);requestCalls++;pendingId='request-'+requestCalls;return {id:pendingId,actor,host:'example.com',url,status:grantStatus,reason}};
+bindings.WaitNetworkAccess=async(id)=>new Promise(resolve=>{assert.equal(id,pendingId);waitResolve=resolve});
+bindings.CancelNetworkAccess=async()=>{};
+bindings.FetchWeb=async(actor,url)=>{assert.equal(actor,recipeActor);fetchCalls++;return {text:'Primary source evidence',status:200,contentType:'text/plain',truncated:false}};
+let approvalStep=0;
+bindings.CompleteProvider=async(id,provider,key,body)=>{const req=JSON.parse(body);let out;
+ if(approvalStep===0)out=tool('network_request',{url:'https://example.com/report',reason:'Read the primary report for this brief.'});
+ else if(approvalStep===1){assert.equal(JSON.parse(req.messages.at(-1).content).status,'approved');grantStatus='approved';out=tool('web_fetch',{url:'https://example.com/report'})}
+ else{assert.equal(JSON.parse(req.messages.at(-1).content).text,'Primary source evidence');out={choices:[{message:{role:'assistant',content:'Read the approved source.'}}]}}approvalStep++;return {status:200,body:JSON.stringify(out)};
+};
+const waitingRun=window.fetch('/api/run',{method:'POST',body:JSON.stringify({agentId:recipeActor,channel:recipeActor})});
+for(let n=0;n<100&&!waitResolve;n++)await new Promise(resolve=>setTimeout(resolve,2));assert(waitResolve,'run must wait for human approval');assert.equal(fetchCalls,0);assert.equal(approvalStep,1);
+waitResolve({id:pendingId,actor:recipeActor,host:'example.com',status:'approved'});response=await waitingRun;assert(response.ok,await response.text());assert.equal(fetchCalls,1);assert.equal(approvalStep,3);
+const network=load('frontend/network-access.ts');grantStatus='denied';const denied=await network.fetchAgentWeb(recipeActor,'https://example.com/report',500);assert.equal(denied.networkAccess.status,'denied');assert.equal(fetchCalls,1);
+assert(!load('frontend/shared/lib/space.ts').toolDefinitions.some(t=>/resolve|approve|SetNetworkPolicy/i.test(t.name)));
+console.log('Six editable recipes preserve provider/model and add one real agent. URL requests pause the agent, fetch nothing before approval, resume after approval, and respect denial. No agent approval/policy mutation tool is exposed.');
+
+grantStatus='pending';let cancelledRequest=false;waitResolve=undefined;bindings.CancelNetworkAccess=async(actor,id)=>{assert.equal(actor,recipeActor);assert(id);cancelledRequest=true};
+const cancelSignal=new AbortController();const pendingAccess=network.requestAgentNetworkAccess(recipeActor,'https://example.com/report','Read evidence',cancelSignal.signal);
+for(let n=0;n<100&&!waitResolve;n++)await new Promise(resolve=>setTimeout(resolve,2));cancelSignal.abort();await assert.rejects(()=>pendingAccess,/Cancelled/);assert(cancelledRequest);waitResolve({status:'cancelled'});assert.equal(fetchCalls,1);
+console.log('Stopping a waiting agent cancels its approval request and does not fetch the URL.');

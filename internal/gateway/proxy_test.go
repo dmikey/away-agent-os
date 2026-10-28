@@ -82,7 +82,7 @@ func TestTextFetchTrimsHTMLAndOmitsQueryFromLog(t *testing.T) {
 		go func() {
 			defer server.Close()
 			http.ReadRequest(bufio.NewReader(server))
-			body := "<html><script>SECRET_SCRIPT</script><style>HIDDEN_STYLE</style><p>Hello collaborative world</p></html>"
+			body := "<html><script>SECRET_SCRIPT</script><style>HIDDEN_STYLE</style><p>Hello collaborative world</p><a href=\"/source\">Primary source</a><a href=\"javascript:alert(1)\">Bad</a></html>"
 			fmt.Fprintf(server, "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: %d\r\n\r\n%s", len(body), body)
 		}()
 		return client, nil
@@ -90,6 +90,9 @@ func TestTextFetchTrimsHTMLAndOmitsQueryFromLog(t *testing.T) {
 	result, e := p.Fetch(context.Background(), "milo", "http://example.com/?token=NOT_FOR_LOGS", 10)
 	if e != nil {
 		t.Fatal(e)
+	}
+	if len(result.Links) != 1 || result.Links[0] != "http://example.com/source" {
+		t.Fatal("source links unavailable", result.Links)
 	}
 	if result.Text != "Hello coll" || !result.Truncated {
 		t.Fatal(result)
