@@ -54,7 +54,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
 
 The build downloads only pinned Linux/Alpine/Python artifacts listed in `sandbox/macos-guest-lock.json`, verifies their SHA-256 hashes, cross-compiles the Linux-only guest agent, and assembles a reproducible initramfs. Guest programs are never executed on the Mac during the build. `AWAY_GUEST_SOURCE_CACHE` can select an existing verified source cache.
 
-The package script builds outside iCloud-synced Documents folders, ad-hoc signs with the `com.apple.security.virtualization` entitlement, verifies the signature, and writes `build/bin/Away OS-macOS-arm64.zip`. It prints the staged `.app` path. This is a local development package; it is **not notarized** or a production release.
+The package script generates Finder/Dock/Retina icons from `build/appicon.png`, builds outside iCloud-synced Documents folders, signs with the `com.apple.security.virtualization` entitlement, verifies the signature, and writes `build/bin/Away OS-macOS-arm64.zip`. It prefers a single installed Developer ID Application certificate, using hardened runtime and a secure timestamp. Set `AWAY_SIGN_IDENTITY` to select a certificate when several are installed, or `-` for an ad-hoc development build. Without a Developer ID certificate it falls back to ad-hoc signing. It prints the staged `.app` path. Signing does **not** notarize the app; notarization remains a separate release step.
 
 ## Verify
 
