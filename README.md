@@ -23,6 +23,8 @@ Manage agents in **Messenger → Chat settings → Agents**, or use the settings
 - `web_fetch` returns bounded readable text through the Go gateway. HTML scripts/styles are removed. HTTPS is terminated for this explicit fetch, without intercepting other guest connections.
 - Inspectable tool catalog with search, descriptions and parameters. Built-in agent tools use the same validated commands as the UI. A local external MCP server is not implemented yet; front-end WebMCP depends on WebView support.
 
+Agents show the app they are working in. For new Writer work, `document_write` with `mode:create` creates a separate document (version zero means a new file); updates use `mode:update`, the saved path, and that file’s version. Duplicate titles choose a free filename. Document writes restore Writer and bring it forward, and switching documents refreshes its content even when both have the same version number. Agent turns allow up to eight model steps so they can open, draft, revise, and confirm their work.
+
 ## Execution and network boundary
 
 macOS uses Apple’s Virtualization.framework directly. Firecracker requires Linux KVM; it is not the active macOS backend. There is no nested virtualization dependency on M1/M2.

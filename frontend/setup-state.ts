@@ -7,6 +7,7 @@ export function completeSetup(space:Space,agent:Agent,revisit=false):Space{
  providerInfo(agent.provider);
  if(!agent.name?.trim()||!agent.model?.trim()||!agent.instructions?.trim())throw Error('Give your agent a name, model, and working instructions.');
  const next=applyCommand(space,'agent_save',{agent});const first=next.agents[next.agents.length-1];
+ next.presentation={window:'chat',token:crypto.randomUUID(),actor:'you'};
  next.setup={version:1,completed:true,provider:first.provider,firstAgentId:first.id};
  next.windows=Object.fromEntries(Object.entries(next.windows).map(([id,w])=>[id,{...w,open:id==='chat',minimized:false,hidden:false}]));
  return next;

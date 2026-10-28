@@ -94,3 +94,44 @@ const chosenId=migrated.state.agents[0].id;const storedMessages=structuredClone(
 const removed=await act('agent_delete',{agentId:chosenId});assert(removed.ok);assert.equal(snapshot.state.agents.length,0);assert.equal(JSON.stringify(snapshot.state.workbench.fs),storedFiles);assert.deepEqual(snapshot.state.messages,storedMessages);assert.equal(snapshot.state.setup.completed,true);assert(!snapshot.state.setup.firstAgentId);assert(connections.Anthropic);
 assert.equal((await act('agent_delete',{agentId:'missing'})).status,400);
 console.log('Legacy starter migration retires only untouched unused seeds; custom, used, saved and chosen agents survive. Human removal preserves messages, files, setup and provider connection.');
+
+// Real agent route + provider transport contract, scripted model responses (no API calls).
+snapshot={state:initialSpace(),revision:0};connections.OpenAI=true;
+await command('agent_save',{agent:{name:'Writer agent',provider:'OpenAI',model:'test',instructions:'Write stories.'}});
+const writingAgent=snapshot.state.agents[0].id;
+let writerState=(await load('frontend/store.ts').readSpace()).state;
+const originalDocument=structuredClone(writerState.workbench.document);assert.equal(originalDocument.version,1);
+await command('window_control',{window:'writer',action:'show'});await command('window_control',{window:'writer',action:'minimize'});
+let modelStep=0,createdPath='';
+const tool=(name,args)=>({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'step-'+modelStep,type:'function',function:{name,arguments:JSON.stringify(args)}}]}}]});
+bindings.CompleteProvider=async(id,provider,key,body)=>{const req=JSON.parse(body);assert(req.messages[0].content.includes('mode:create'));let result;
+ if(modelStep===0)result=tool('window_control',{window:'writer',action:'show'});
+ else if(modelStep===1)result=tool('space_read',{});
+ else if(modelStep===2){const read=JSON.parse(req.messages.at(-1).content);assert.equal(read.state.workbench.document.version,1);assert(!snapshot.state.windows.writer.minimized);result=tool('document_write',{mode:'create',title:'The Moon Garden',html:'<h1>The Moon Garden</h1><p>The gate opened.</p>',expectedVersion:0})}
+ else if(modelStep===3){const saved=JSON.parse(req.messages.at(-1).content);createdPath=saved.state.workbench.document.path;assert.equal(saved.state.workbench.document.version,1);assert.equal(saved.state.presentation.window,'writer');assert.equal(saved.state.presentation.actor,writingAgent);result=tool('space_read',{})}
+ else if(modelStep===4){const current=JSON.parse(req.messages.at(-1).content).state.workbench.document;result=tool('document_write',{mode:'update',path:createdPath,html:'<h1>The Moon Garden</h1><p>The gate opened.</p><p>Marv found the stars. The end.</p>',expectedVersion:current.version})}
+ else {const saved=JSON.parse(req.messages.at(-1).content);assert.equal(saved.state.workbench.document.version,2);result={choices:[{message:{role:'assistant',content:'Saved the story in Writer: '+createdPath}}]}}
+ modelStep++;return {status:200,body:JSON.stringify(result)};
+};
+response=await window.fetch('/api/run',{method:'POST',body:JSON.stringify({agentId:writingAgent,channel:writingAgent})});assert(response.ok,await response.text());assert.equal(modelStep,6);
+assert(snapshot.state.workbench.document.html.includes('The end.'));assert(snapshot.state.windows.writer.open&&!snapshot.state.windows.writer.hidden&&!snapshot.state.windows.writer.minimized);
+assert.equal(snapshot.state.workbench.fs.entries.find(e=>e.path===originalDocument.path).content,originalDocument.html);
+const secondStory=await command('document_write',{mode:'create',title:'The Moon Garden',html:'<p>Another story</p>',expectedVersion:0});assert.notEqual(secondStory.state.workbench.document.path,createdPath);assert(secondStory.state.workbench.fs.entries.find(e=>e.path===createdPath).content.includes('The end.'));
+await assert.rejects(()=>command('document_write',{mode:'create',path:createdPath,html:'<p>Must not overwrite</p>',expectedVersion:0}),/already exists/);
+await assert.rejects(()=>command('document_write',{mode:'update',path:createdPath,html:'<p>Stale</p>',expectedVersion:1}),/changed/);
+const legacyCreate=await command('document_write',{title:'A different story',html:'<p>New work</p>',expectedVersion:0});assert.equal(legacyCreate.state.workbench.document.title,'A different story');
+// A concurrent window save must not corrupt the rename's expected version on retry.
+const commitNormally=bindings.CommitWorkspace;let failNextRename=true;
+bindings.CommitWorkspace=async(revision,json)=>{if(failNextRename){failNextRename=false;snapshot={...snapshot,revision:snapshot.revision+1};throw Error('Revision conflict; retry')}return commitNormally(revision,json)};
+const renamed=await command('document_write',{mode:'update',title:'Renamed story',html:'<p>Kept story</p>',expectedVersion:legacyCreate.state.workbench.document.version});assert.equal(renamed.state.workbench.document.title,'Renamed story');bindings.CommitWorkspace=commitNormally;
+console.log('Writer workflow: six-step agent opens/restores Writer, creates and finishes a separate story, foregrounds it, and preserves existing documents. Duplicate titles are safe, stale writes rejected, unrelated window conflicts retry without false document conflicts.');
+
+let recoveryStep=0;
+bindings.CompleteProvider=async(id,provider,key,body)=>{const req=JSON.parse(body);let result;
+ if(recoveryStep===0)result=tool('document_write',{mode:'update',path:originalDocument.path,html:'<p>Wrong version must not overwrite</p>',expectedVersion:0});
+ else if(recoveryStep===1){const failure=JSON.parse(req.messages.at(-1).content);assert.equal(failure.code,'DOCUMENT_VERSION_MISMATCH');assert(failure.recovery.includes('mode:create'));result=tool('space_read',{})}
+ else if(recoveryStep===2)result=tool('document_write',{mode:'create',title:'Recovered draft',html:'<p>Saved without disturbing existing work.</p>',expectedVersion:0});
+ else result={choices:[{message:{role:'assistant',content:'Saved a separate draft in Writer.'}}]};recoveryStep++;return {status:200,body:JSON.stringify(result)};
+};
+response=await window.fetch('/api/run',{method:'POST',body:JSON.stringify({agentId:writingAgent,channel:writingAgent})});assert(response.ok,await response.text());assert.equal(recoveryStep,4);assert.equal(snapshot.state.workbench.fs.entries.find(e=>e.path===originalDocument.path).content,originalDocument.html);
+console.log('Writer tool conflicts return current metadata and safe recovery instructions; a retry can create a separate draft without asking the user or overwriting existing work.');
