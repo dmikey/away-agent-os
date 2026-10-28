@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/Code-Hex/vz/v3"
 	"github.com/dmikey/away-agent-os/desktop/internal/gateway"
 	"github.com/dmikey/away-agent-os/desktop/internal/guestproto"
@@ -36,6 +37,20 @@ func New() (*Manager, error) {
 	dir, e := prepareAssets()
 	if e != nil {
 		return nil, e
+	}
+	boot, e := vz.NewLinuxBootLoader(filepath.Join(dir, "vmlinuz"), vz.WithInitrd(filepath.Join(dir, "initramfs.gz")))
+	if e != nil {
+		os.RemoveAll(dir)
+		return nil, e
+	}
+	preflight, e := vz.NewVirtualMachineConfiguration(boot, 2, 512*1024*1024)
+	if e != nil {
+		os.RemoveAll(dir)
+		return nil, e
+	}
+	if ok, e := preflight.Validate(); !ok || e != nil {
+		os.RemoveAll(dir)
+		return nil, fmt.Errorf("macOS cannot authorize the isolated VM. Use the signed Away OS.app, rather than an unsigned binary or development build. macOS diagnostic: %v", e)
 	}
 	return &Manager{dir: dir, sessions: map[string]*session{}, Gateway: gateway.New()}, nil
 }
@@ -93,7 +108,10 @@ func (m *Manager) session(actor string) (*session, error) {
 	if ok, e := config.Validate(); !ok || e != nil {
 		input.Close()
 		output.Close()
-		return nil, errors.New("Invalid isolated VM configuration")
+		if e != nil {
+			return nil, fmt.Errorf("Invalid isolated VM configuration: %w", e)
+		}
+		return nil, errors.New("Invalid isolated VM configuration: macOS rejected the configuration without a diagnostic")
 	}
 	vm, e := vz.NewVirtualMachine(config)
 	if e != nil {
@@ -146,7 +164,9 @@ func (m *Manager) Execute(ctx context.Context, actor string, job guestproto.Job)
 	if e != nil {
 		return guestproto.Result{}, e
 	}
-	s.mu.Lock()
+	if !s.mu.TryLock() {
+		return guestproto.Result{}, errors.New("Close the interactive terminal before running code or notebooks in this VM")
+	}
 	defer s.mu.Unlock()
 	var conn *vz.VirtioSocketConnection
 	deadline := time.Now().Add(30 * time.Second)
@@ -207,3 +227,34 @@ func (m *Manager) Reset() {
 	}
 }
 func (m *Manager) Close() { m.Reset(); os.RemoveAll(m.dir) }
+
+// OpenTerminal reserves one actor's VM until the interactive shell exits.
+func (m *Manager) OpenTerminal(ctx context.Context, actor string, job guestproto.Job, cols, rows uint16) (*Terminal, error) {
+	if e := guestproto.Validate(job); e != nil {
+		return nil, e
+	}
+	s, e := m.session(actor)
+	if e != nil {
+		return nil, e
+	}
+	if !s.mu.TryLock() {
+		return nil, errors.New("This actor's VM is busy. Close its terminal or wait for the current run.")
+	}
+	var conn *vz.VirtioSocketConnection
+	for until := time.Now().Add(30 * time.Second); time.Now().Before(until); {
+		if ctx.Err() != nil {
+			s.mu.Unlock()
+			return nil, ctx.Err()
+		}
+		conn, e = s.vm.SocketDevices()[0].Connect(guestproto.TerminalPort)
+		if e == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if conn == nil {
+		s.mu.Unlock()
+		return nil, errors.New("The Linux terminal service did not become ready")
+	}
+	return newTerminal(conn, job, cols, rows, s.mu.Unlock)
+}

@@ -1,13 +1,14 @@
 <!doctype html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Away first-run test fixture</title></head><body><div id="root"></div><script>
 // Browser-only test fixture. Not included in the production Vite entry or app bundle.
-let snapshot=JSON.parse(sessionStorage.getItem('away-fixture')||'null')||{state:null,revision:-1};const connected=JSON.parse(sessionStorage.getItem('away-fixture-providers')||'{}');
+let snapshot=JSON.parse(sessionStorage.getItem('away-fixture')||'null')||{state:null,revision:-1};let terminalText="";const connected=JSON.parse(sessionStorage.getItem('away-fixture-providers')||'{}');
 window.go={main:{App:{
  async ReadWorkspace(){return structuredClone(snapshot)},
- async CommitWorkspace(revision,json){if(revision!==snapshot.revision)throw Error('Revision conflict');snapshot={state:JSON.parse(json),revision:revision+1};sessionStorage.setItem('away-fixture',JSON.stringify(snapshot));return structuredClone(snapshot)},
+ async CommitWorkspace(revision,json){if(revision!==snapshot.revision)throw Error('Revision conflict');snapshot={state:JSON.parse(json),revision:revision+1};if(revision===-1&&new URLSearchParams(location.search).has('returning')){delete snapshot.state.setup;}sessionStorage.setItem('away-fixture',JSON.stringify(snapshot));return structuredClone(snapshot)},
  async ProviderStatus(){return connected},async SandboxStatus(){return {available:false,reason:'Browser test fixture; execution unavailable.'}},
  async OpenExternal(url){window.fixtureExternalURL=url},async FrontendReady(){window.fixtureReady=true},
  async ConnectProvider(provider,key){if(key==='invalid')throw Error('Invalid key');connected[provider]=true;sessionStorage.setItem('away-fixture-providers',JSON.stringify(connected));return {models:[{OpenAI:'gpt-4.1-mini',Anthropic:'claude-sonnet-fixture',xAI:'grok-fixture'}[provider]]}},
  async CompleteProvider(){return {status:200,body:JSON.stringify({choices:[{message:{content:'Fixture reply: your agent is connected.'}}]})}},
+ async OpenTerminal(){terminalText='Fixture PTY transport\r\n/workspace $ '},async ReadTerminal(id,offset){return {data:btoa(terminalText.slice(offset)),offset:terminalText.length,closed:false,error:''}},async WriteTerminal(id,data){terminalText+=atob(data).replaceAll('\r','\r\n')},async ResizeTerminal(){},async CloseTerminal(){return {filesComplete:true,files:snapshot.state.workbench.fs.entries.filter(f=>!f.trashed).map(f=>({path:f.path,kind:f.kind,encoding:'base64',content:f.kind==='file'?btoa(unescape(encodeURIComponent(f.content))):''}))}},
  async CancelRequest(){},async NetworkPolicies(){return {}},async NetworkEvents(){return []}
 }}};
 </script><script type="module" src="/main.tsx"></script></body></html>

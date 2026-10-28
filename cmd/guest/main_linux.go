@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -27,6 +28,9 @@ func fatal(e error) {
 		time.Sleep(time.Hour)
 	}
 }
+
+var workspaceMu sync.Mutex
+
 func main() {
 	for _, d := range []string{"/proc", "/sys", "/dev", "/tmp", "/workspace", "/run"} {
 		os.MkdirAll(d, 0755)
@@ -34,6 +38,10 @@ func main() {
 	syscall.Mount("proc", "/proc", "proc", syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC, "")
 	syscall.Mount("sysfs", "/sys", "sysfs", syscall.MS_NOSUID|syscall.MS_NODEV|syscall.MS_NOEXEC, "")
 	syscall.Mount("devtmpfs", "/dev", "devtmpfs", syscall.MS_NOSUID, "")
+	os.MkdirAll("/dev/pts", 0755)
+	syscall.Mount("devpts", "/dev/pts", "devpts", syscall.MS_NOSUID|syscall.MS_NOEXEC, "newinstance,ptmxmode=0666,mode=0620")
+	os.Remove("/dev/ptmx")
+	os.Symlink("pts/ptmx", "/dev/ptmx")
 	syscall.Mount("tmpfs", "/tmp", "tmpfs", syscall.MS_NOSUID|syscall.MS_NODEV, "size=128m,mode=1777")
 	syscall.Mount("tmpfs", "/workspace", "tmpfs", syscall.MS_NOSUID|syscall.MS_NODEV, "size=64m,mode=0755,uid=1000,gid=1000")
 	syscall.Setrlimit(syscall.RLIMIT_NOFILE, &syscall.Rlimit{Cur: 256, Max: 256})
@@ -44,6 +52,7 @@ func main() {
 	os.Chown("/workspace", 1000, 1000)
 	exec.Command("/bin/busybox", "ip", "link", "set", "lo", "up").Run()
 	go networkProxy()
+	go terminalServer()
 	l, e := vsock.Listen(guestproto.Port, nil)
 	if e != nil {
 		fatal(e)
@@ -65,7 +74,9 @@ func main() {
 				result.Error = true
 				result.Output = e.Error()
 			} else {
+				workspaceMu.Lock()
 				result = execute(job)
+				workspaceMu.Unlock()
 			}
 			json.NewEncoder(c).Encode(result)
 		}()
@@ -191,6 +202,9 @@ func execute(job guestproto.Job) guestproto.Result {
 		r.Error = cmd.Run() != nil
 		r.Output = string(out.data)
 	}
+	return exportWorkspace(r)
+}
+func exportWorkspace(r guestproto.Result) guestproto.Result {
 	total := 0
 	exportFailed := false
 	filepath.WalkDir("/workspace", func(p string, d os.DirEntry, e error) error {

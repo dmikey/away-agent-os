@@ -16,3 +16,7 @@ func (*Manager) Execute(context.Context, string, guestproto.Job) (guestproto.Res
 }
 func (*Manager) Reset() {}
 func (*Manager) Close() {}
+
+func (*Manager) OpenTerminal(context.Context, string, guestproto.Job, uint16, uint16) (*Terminal, error) {
+	return nil, errors.New("macOS required")
+}

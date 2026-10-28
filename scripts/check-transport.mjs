@@ -4,7 +4,7 @@ const cache=new Map();let snapshot={state:null,revision:-1};
 const connections={OpenAI:false,Anthropic:false,xAI:false};
 const bindings={async ProviderStatus(){return {...connections}},async CompleteProvider(id,provider,key,body){assert.equal(key,'','saved connections must not be replaced with an empty Bearer header');return {status:200,body:JSON.stringify({choices:[{message:{content:provider+' reply'}}]})}},async SandboxStatus(){return {available:true}},async ReadWorkspace(){return structuredClone(snapshot)},async CommitWorkspace(revision,json){await new Promise(r=>setTimeout(r,1));if(revision!==snapshot.revision)throw Error('Revision conflict; retry');snapshot={state:JSON.parse(json),revision:revision+1};return structuredClone(snapshot)}};
 const window={go:{main:{App:bindings}},fetch:async()=>{throw Error('Unexpected network call')}};
-const globals={window,fetch:(...args)=>window.fetch(...args),location:{href:'http://wails.localhost/',origin:'http://wails.localhost'},crypto,structuredClone,TextEncoder,Uint8Array,Date,atob,btoa,Response,Request,URL,AbortSignal,DOMException,setTimeout};
+const globals={window,fetch:(...args)=>window.fetch(...args),location:{href:'http://wails.localhost/',origin:'http://wails.localhost'},crypto,structuredClone,TextEncoder,TextDecoder,Uint8Array,Date,atob,btoa,Response,Request,URL,AbortSignal,DOMException,setTimeout};
 function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(file).exports;const module={exports:{}};cache.set(file,module);const output=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;vm.runInNewContext('(function(require,module,exports){'+output+'\n})',globals)(p=>p==='cloudflare:workers'?{env:{}}:load(path.resolve(path.dirname(file),p+'.ts')),module,module.exports);return module.exports}
 load('frontend/transport.ts').installTransport();
 let response=await window.fetch('/api/space');assert(response.ok);let data=await response.json();assert.equal(data.revision,0);assert(data.state.workbench.fs.entries.length>0);
@@ -44,3 +44,24 @@ response=await window.fetch('/api/run',{method:'POST',body:JSON.stringify({agent
 assert(snapshot.state.messages.some(m=>m.text==='Anthropic reply'),'saved-key agent must reach its chosen provider and persist a reply');
 response=await window.fetch('https://api.openai.com/v1/chat/completions',{method:'POST',headers:{Authorization:'Bearer '},body:'{}'});assert(response.ok);
 console.log('Saved-provider agent reply and empty authorization normalization passed.');
+
+const revisit=completeSetup(snapshot.state,{name:'Second',provider:'OpenAI',model:'gpt-4.1-mini',instructions:'Help'},true);
+assert.equal(revisit.agents.length,2);assert.equal(revisit.messages.length,snapshot.state.messages.length);assert.equal(revisit.workbench.fs.entries.length,snapshot.state.workbench.fs.entries.length);
+const {mergeTerminalFiles}=load('frontend/shared/lib/workbench.ts');
+const baseline=structuredClone(snapshot.state.workbench.fs),shellState=structuredClone(snapshot.state);
+const guestFiles=baseline.entries.filter(f=>!f.trashed).map(f=>({path:f.path,kind:f.kind,encoding:'base64',content:f.kind==='file'?(f.encoding==='base64'?f.content:btoa(unescape(encodeURIComponent(f.content)))):''}));
+guestFiles.push({path:'/workspace/from-terminal.txt',kind:'file',encoding:'base64',content:btoa('made in a PTY')});
+mergeTerminalFiles(shellState.workbench,baseline,guestFiles,'terminal-check');
+assert(shellState.workbench.fs.entries.some(f=>f.path==='/workspace/from-terminal.txt'&&f.content==='made in a PTY'&&f.encoding==='utf8'));
+console.log('Setup replay preserves agents/messages/files; terminal text exports remain editable.');
+
+const conflictState=structuredClone(snapshot.state),conflictBase=structuredClone(conflictState.workbench.fs);
+const target=conflictBase.entries.find(f=>f.kind==='file'&&f.encoding==='utf8');
+const edited=load('frontend/shared/lib/space.ts').applyCommand(conflictState,'fs_write',{path:target.path,content:'human edit',expectedVersion:target.version});
+const exportFiles=conflictBase.entries.filter(f=>!f.trashed).map(f=>({path:f.path,kind:f.kind,encoding:'base64',content:f.kind==='file'?btoa(unescape(encodeURIComponent(f.path===target.path?'terminal edit':f.content))):''}));
+const conflicts=mergeTerminalFiles(edited.workbench,conflictBase,exportFiles,'conflict-check');
+assert(conflicts.includes(target.path));assert(edited.workbench.fs.entries.some(f=>f.path===target.path&&f.content==='human edit'));assert(edited.workbench.fs.entries.some(f=>f.path.startsWith('/workspace/Conflicts/conflict-check')&&f.content==='terminal edit'));
+console.log('Concurrent editor changes preserved; conflicting terminal version recovered.');
+
+const {shouldOfferSetup}=load('frontend/setup-state.ts');assert(shouldOfferSetup(legacy,{}));assert(!shouldOfferSetup(legacy,{OpenAI:true}));assert(shouldOfferSetup(initialSpace(),{OpenAI:true}));
+console.log('Provider-less returning workspaces reopen setup without deleting their data.');

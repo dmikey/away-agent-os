@@ -26,12 +26,14 @@ import (
 
 // App exposes narrow native bindings only to the bundled frontend. It never loads remote UI.
 type App struct {
-	store    *state.Store
-	vms      *macvm.Manager
-	vmError  string
-	ctx      context.Context
-	mu       sync.Mutex
-	requests map[string]context.CancelFunc
+	terminalMu sync.Mutex
+	terminals  map[string]*macvm.Terminal
+	store      *state.Store
+	vms        *macvm.Manager
+	vmError    string
+	ctx        context.Context
+	mu         sync.Mutex
+	requests   map[string]context.CancelFunc
 }
 
 func newApp() (*App, error) {
@@ -56,6 +58,11 @@ func (a *App) shutdown(context.Context) {
 		cancel()
 	}
 	a.mu.Unlock()
+	a.terminalMu.Lock()
+	for _, t := range a.terminals {
+		t.Close()
+	}
+	a.terminalMu.Unlock()
 	if a.vms != nil {
 		a.vms.Close()
 	}
@@ -114,7 +121,7 @@ func (a *App) ResetSandboxes() {
 }
 func (a *App) ExecuteRun(id, owner string) (guestproto.Result, error) {
 	if a.vms == nil {
-		return guestproto.Result{}, errors.New("Isolated VM runtime unavailable")
+		return guestproto.Result{}, errors.New("Isolated VM runtime unavailable: " + a.vmError)
 	}
 	snapshot, e := a.store.Read()
 	if e != nil {
@@ -230,6 +237,42 @@ func (a *App) ExecuteRun(id, owner string) (guestproto.Result, error) {
 
 // Boot acknowledgment for isolated launch checks; never logs workspace contents or keys.
 func (a *App) FrontendReady() {
+	if os.Getenv("AWAY_TERMINAL_SMOKE_TEST") == "1" {
+		go func() {
+			defer wailsruntime.Quit(a.ctx)
+			ctx, cancel := context.WithTimeout(a.ctx, 90*time.Second)
+			defer cancel()
+			if a.vms == nil {
+				fmt.Println("AWAY_TERMINAL_FAILED:", a.vmError)
+				return
+			}
+			if e := a.vms.CheckTerminal(ctx); e != nil {
+				fmt.Println("AWAY_TERMINAL_FAILED:", e)
+			} else {
+				fmt.Println("AWAY_TERMINAL_READY")
+			}
+		}()
+		return
+	}
+	if os.Getenv("AWAY_VM_SMOKE_TEST") == "1" {
+		go func() {
+			defer wailsruntime.Quit(a.ctx)
+			ctx, cancel := context.WithTimeout(a.ctx, 45*time.Second)
+			defer cancel()
+			if a.vms == nil {
+				fmt.Println("AWAY_VM_FAILED:", a.vmError)
+				return
+			}
+			r, e := a.vms.Execute(ctx, "you", guestproto.Job{ID: "native-smoke", Kind: "shell", Source: "uname -s; pwd"})
+			if e != nil {
+				fmt.Println("AWAY_VM_FAILED:", e)
+			} else {
+				fmt.Println("AWAY_VM_RESULT:", r.Output)
+			}
+		}()
+		return
+	}
+
 	if os.Getenv("AWAY_SMOKE_TEST") == "1" {
 		fmt.Println("AWAY_NATIVE_READY: React mounted, Go bindings connected, local workspace loaded; host execution disabled")
 		wailsruntime.Quit(a.ctx)

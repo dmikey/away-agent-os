@@ -8,19 +8,21 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "clsx": "2.1.1",
+    "lucide-react": "^1.31.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
-    "lucide-react": "^1.31.0",
-    "clsx": "2.1.1",
     "tailwind-merge": "3.6.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "6.0.2",
-    "vite": "8.0.13",
-    "typescript": "5.9.3",
+    "@types/node": "22.19.19",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
-    "@types/node": "22.19.19"
+    "@vitejs/plugin-react": "6.0.2",
+    "typescript": "5.9.3",
+    "vite": "8.0.13"
   },
   "packageManager": "pnpm@11.25.0"
 }

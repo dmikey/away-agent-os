@@ -8,11 +8,12 @@ Away OS runs locally on **Apple Silicon macOS**, with a shared workspace for you
 
 Away welcomes new workspaces with a four-step setup: choose OpenAI, Anthropic, or xAI; follow the provider’s key link and connect an API key; name your first agent and select an available model; then choose a working style and refine their instructions. Keys are saved in macOS Keychain, separate from workspace files. API usage is billed by your provider.
 
-Setup opens only Messenger, directly in a conversation with your new agent. Other apps are available from the Dock. Setup runs once per new workspace; existing agents and window layouts are preserved.
+Setup opens only Messenger, directly in a conversation with your new agent. Other apps are available from the Dock. Setup starts for a new workspace or when no provider key is saved. Existing files, messages, and agents are preserved; returning users can cancel the assistant to keep working offline. To run it again, open **Chat settings → Connection → Setup assistant…**. This adds a provider/agent without deleting existing work.
 
 ## What works
 
 - ICQ-inspired messenger, agent definitions, rooms, and Keychain-backed provider connections.
+- Interactive xterm.js terminal backed by a real Linux PTY: persistent shell state, streamed output, interactive input, Ctrl+C, history, and resize. Close the terminal to export changes to the virtual filesystem; concurrent editor edits are preserved and conflicts recovered. Reconnect to load new editor changes.
 - Draggable/resizable windows, active-app menus, Dock, boot screen, and calendar.
 - Shared virtual filesystem and Explorer, local-file import, Code, Writer, scratchpad and `.ipynb` editing.
 - Python files and notebook cells execute inside a dedicated Linux VM for each actor. An actor’s code and notebooks share Python variables; other actors have separate kernels.
@@ -59,6 +60,8 @@ codesign --force --sign - --entitlements build/darwin-entitlements.plist /tmp/aw
 ```
 
 The VM check boots real Linux guests and verifies Linux identity, inaccessible/unchanged host canaries, workspace export, persistent Python variables, separate actor kernels, cancellation, default-deny networking, one explicitly approved `example.com` HTTPS request, separate actor policies and recorded activity. All check VMs are stopped afterward. No provider API calls are part of these tests.
+
+Set `AWAY_TERMINAL_SMOKE_TEST=1` and `AWAY_DATA_DIR` to a temporary directory when launching the signed app to exercise the real guest PTY: TTY identity, UID 1000, shell state, interactive stdin, resize, Ctrl+C, workspace export, and host isolation. Test instances use a separate instance lock and do not interrupt a running workspace. VM validation failures include the macOS diagnostic; unsigned executables cannot use virtualization.
 
 Set `AWAY_SMOKE_TEST=1` and `AWAY_DATA_DIR` to a temporary directory when launching the staged app binary for a boot check. It exits only after React has completed the real workspace boot and acknowledged the Go bridge. It never prints workspace contents or keys.
 

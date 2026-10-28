@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/Code-Hex/vz/v3 v3.8.0
+	github.com/creack/pty v1.1.24
 	github.com/mdlayher/vsock v1.2.1
 	github.com/wailsapp/wails/v2 v2.17.0
 	golang.org/x/net v0.56.0
