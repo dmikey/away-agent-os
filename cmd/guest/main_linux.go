@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -30,6 +31,7 @@ func fatal(e error) {
 }
 
 var workspaceMu sync.Mutex
+var sharedMounted bool
 
 func main() {
 	for _, d := range []string{"/proc", "/sys", "/dev", "/tmp", "/workspace", "/run"} {
@@ -46,10 +48,21 @@ func main() {
 	syscall.Mount("tmpfs", "/workspace", "tmpfs", syscall.MS_NOSUID|syscall.MS_NODEV, "size=64m,mode=0755,uid=1000,gid=1000")
 	syscall.Setrlimit(syscall.RLIMIT_NOFILE, &syscall.Rlimit{Cur: 256, Max: 256})
 	// Modules and these fixed commands execute only within the Linux guest.
-	for _, m := range []string{"virtio_pci", "virtio_console", "vmw_vsock_virtio_transport"} {
+	for _, m := range []string{"virtio_pci", "virtio_console", "vmw_vsock_virtio_transport", "virtiofs"} {
 		exec.Command("/bin/busybox", "modprobe", m).Run()
 	}
 	os.Chown("/workspace", 1000, 1000)
+	os.MkdirAll("/workspace/Shared", 0755)
+	if e := syscall.Mount("away-shared", "/workspace/Shared", "virtiofs", syscall.MS_NOSUID|syscall.MS_NODEV, ""); e != nil {
+		os.Remove("/workspace/Shared")
+		cmdline, _ := os.ReadFile("/proc/cmdline")
+		if strings.Contains(string(cmdline), "away_shared=1") {
+			fatal(fmt.Errorf("Could not mount approved folders: %w", e))
+		}
+	} else {
+		sharedMounted = true
+	}
+
 	exec.Command("/bin/busybox", "ip", "link", "set", "lo", "up").Run()
 	go networkProxy()
 	go terminalServer()
@@ -123,9 +136,15 @@ func execute(job guestproto.Job) guestproto.Result {
 	// Workspace snapshots replace only guest /workspace; no host directory is mounted.
 	children, _ := os.ReadDir("/workspace")
 	for _, child := range children {
+		if sharedMounted && child.Name() == "Shared" {
+			continue
+		}
 		os.RemoveAll(filepath.Join("/workspace", child.Name()))
 	}
 	for _, f := range job.Files {
+		if sharedMounted && (f.Path == "/workspace/Shared" || strings.HasPrefix(f.Path, "/workspace/Shared/")) {
+			continue
+		}
 		if f.Path == "/workspace" {
 			continue
 		}
@@ -208,6 +227,9 @@ func exportWorkspace(r guestproto.Result) guestproto.Result {
 	total := 0
 	exportFailed := false
 	filepath.WalkDir("/workspace", func(p string, d os.DirEntry, e error) error {
+		if sharedMounted && p == "/workspace/Shared" {
+			return filepath.SkipDir
+		}
 		if e != nil || p == "/workspace" {
 			return nil
 		}

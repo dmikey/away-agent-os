@@ -19,6 +19,17 @@ func main() {
 	}
 }
 func check() error {
+	if os.Getenv("AWAY_SHARE_CHECK") == "1" {
+		m, e := macvm.New()
+		if e != nil {
+			return e
+		}
+		defer m.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		defer cancel()
+		return m.CheckShares(ctx)
+	}
+
 	canary, e := os.CreateTemp("", "away-host-canary-")
 	if e != nil {
 		return e

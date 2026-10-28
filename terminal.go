@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/dmikey/away-agent-os/desktop/internal/sharedfolders"
+	"strings"
 	"time"
 
 	"github.com/dmikey/away-agent-os/desktop/internal/guestproto"
@@ -48,7 +50,7 @@ func (a *App) OpenTerminal(id string, revision, cols, rows int) error {
 	}
 	job := guestproto.Job{ID: id, Kind: "shell"}
 	for _, f := range saved.Workbench.FS.Entries {
-		if f.Trashed == "" {
+		if f.Trashed == "" && !(len(a.SharedFolders()) > 0 && (f.Path == sharedfolders.Prefix || strings.HasPrefix(f.Path, sharedfolders.Prefix+"/"))) {
 			job.Files = append(job.Files, guestproto.File{Path: f.Path, Kind: f.Kind, Content: f.Content, Encoding: f.Encoding})
 		}
 	}

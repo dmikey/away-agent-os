@@ -20,7 +20,7 @@ func main() {
 		log.Fatal(err)
 	}
 	instanceID := "ninja.therad.away"
-	if os.Getenv("AWAY_SMOKE_TEST") == "1" || os.Getenv("AWAY_VM_SMOKE_TEST") == "1" || os.Getenv("AWAY_TERMINAL_SMOKE_TEST") == "1" {
+	if os.Getenv("AWAY_SMOKE_TEST") == "1" || os.Getenv("AWAY_VM_SMOKE_TEST") == "1" || os.Getenv("AWAY_TERMINAL_SMOKE_TEST") == "1" || os.Getenv("AWAY_SHARES_SMOKE_TEST") == "1" {
 		instanceID += ".smoke." + strconv.Itoa(os.Getpid())
 	}
 	err = wails.Run(&options.App{Title: "Away OS", Width: 1440, Height: 950, MinWidth: 800, MinHeight: 600,

@@ -25,7 +25,7 @@ Setup opens only Messenger, directly in a conversation with your new agent. Othe
 
 macOS uses Apple’s Virtualization.framework directly. Firecracker requires Linux KVM; it is not the active macOS backend. There is no nested virtualization dependency on M1/M2.
 
-Each actor receives a 512 MB, two-vCPU Linux VM; at most three VMs are active. No host folders, host disks, SSH agents, Docker sockets, credentials, native process handles or network adapters are attached. The only communication paths are bounded workspace/result messages and a controlled HTTP proxy over virtio-vsock.
+Each actor receives a 512 MB, two-vCPU Linux VM; at most three VMs are active. The filesystem boundary is the complete `/workspace`: virtual workspace files plus folders explicitly shared by the user under `/workspace/Shared`. Approved folders use live Apple virtiofs mounts with per-folder read-only or read/write enforcement. No host block disks, SSH agents, native process handles or network adapters are attached. Bounded workspace/result messages, approved virtiofs shares, and the controlled HTTP proxy are the communication paths.
 
 The guest runs Python and shell commands as UID 1000. Code is not passed to a host shell or interpreter. The host enforces a watchdog and stops VMs on cancellation or shutdown. There is no host execution fallback. Use **Local runtime → Isolation → Reset all VMs** to discard guest kernel variables.
 
@@ -34,6 +34,14 @@ Networking starts with an empty per-actor allowlist on each app launch. In **Loc
 The proxy permits HTTP on port 80 and HTTPS CONNECT on port 443. Limits are 60 requests/minute, four connections per actor, a 60-second connection lifetime, 1 MB HTTP request bodies, 4 MB HTTP responses and 4 MB per TLS direction. HTTPS tunnel contents stay encrypted. The in-memory activity log holds 200 destination/decision/status/byte records; headers, queries, bodies and API keys are omitted. Explicit `web_fetch` requests have a 30-second limit, do not follow redirects, and trim returned text to at most 50,000 characters.
 
 External web pages are not embedded in the privileged native WebView. They appear as escaped readable text through the controlled fetch tool; a human can open HTTPS links in the system browser. The built-in `away://` pages are bundled local assets.
+
+## Share a folder
+
+Open **Explorer → Shared folders → Share folder…**, choose a folder with the macOS picker, name its mount, and select read-only or read/write access. It appears at `/workspace/Shared/<name>` for every agent, Terminal, Code, and Python notebook. Read/write changes affect the selected Mac folder directly. The rest of the Mac filesystem and native processes remain outside this grant.
+
+Changing or removing a grant restarts sandbox VMs; finish active runs and close/save Terminal first. Files on the Mac are kept when a folder is unshared. Folder grants persist in owner-only local configuration, outside agent state. A replaced/missing directory does not silently inherit an old grant. Native editor operations use a confined `os.Root` bridge; agents cannot add folder grants or provide arbitrary host paths.
+
+Mounted data is live and does not use the 2.4 MB virtual-file snapshot quota. The current UI lists folders with up to 500 entries and opens files up to 384 KB; larger files remain accessible from the VM. Move/delete operations on mounted files use Terminal or Finder. Virtual workspace imports/exports skip mount points, so cell refreshes and terminal saves do not traverse or delete real shared folders.
 
 ## Build
 
@@ -60,6 +68,8 @@ codesign --force --sign - --entitlements build/darwin-entitlements.plist /tmp/aw
 ```
 
 The VM check boots real Linux guests and verifies Linux identity, inaccessible/unchanged host canaries, workspace export, persistent Python variables, separate actor kernels, cancellation, default-deny networking, one explicitly approved `example.com` HTTPS request, separate actor policies and recorded activity. All check VMs are stopped afterward. No provider API calls are part of these tests.
+
+Set `AWAY_SHARES_SMOKE_TEST=1` and `AWAY_DATA_DIR` to a temporary directory when launching the signed app to verify live virtiofs reads/writes, read-only enforcement, large-file access, sibling Python imports, mount survival across workspace refreshes, shared access from another actor, revocation, and the full virtual filesystem boundary. This uses disposable fixture folders only. The signed CLI runs the same check with `AWAY_SHARE_CHECK=1 /tmp/away-vmcheck`.
 
 Set `AWAY_TERMINAL_SMOKE_TEST=1` and `AWAY_DATA_DIR` to a temporary directory when launching the signed app to exercise the real guest PTY: TTY identity, UID 1000, shell state, interactive stdin, resize, Ctrl+C, workspace export, and host isolation. Test instances use a separate instance lock and do not interrupt a running workspace. VM validation failures include the macOS diagnostic; unsigned executables cannot use virtualization.
 

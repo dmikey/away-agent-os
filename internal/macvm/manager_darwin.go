@@ -31,6 +31,7 @@ type Manager struct {
 	dir      string
 	sessions map[string]*session
 	Gateway  *gateway.Proxy
+	shares   []Share
 }
 
 func New() (*Manager, error) {
@@ -66,7 +67,11 @@ func (m *Manager) session(actor string) (*session, error) {
 	if len(m.sessions) >= 3 {
 		return nil, errors.New("Three agent VMs are already active. Reset sandboxes to free memory")
 	}
-	boot, e := vz.NewLinuxBootLoader(filepath.Join(m.dir, "vmlinuz"), vz.WithInitrd(filepath.Join(m.dir, "initramfs.gz")), vz.WithCommandLine("console=hvc0 rdinit=/init panic=-1 quiet"))
+	cmdline := "console=hvc0 rdinit=/init panic=-1 quiet"
+	if len(m.shares) > 0 {
+		cmdline += " away_shared=1"
+	}
+	boot, e := vz.NewLinuxBootLoader(filepath.Join(m.dir, "vmlinuz"), vz.WithInitrd(filepath.Join(m.dir, "initramfs.gz")), vz.WithCommandLine(cmdline))
 	if e != nil {
 		return nil, e
 	}
@@ -84,7 +89,28 @@ func (m *Manager) session(actor string) (*session, error) {
 		return nil, e
 	}
 	config.SetEntropyDevicesVirtualMachineConfiguration([]*vz.VirtioEntropyDeviceConfiguration{entropy})
-	// No network adapters, disks, shared directories, host sockets or devices are attached.
+	// Only explicitly granted directories are attached. No host disks, sockets or network adapter.
+	if len(m.shares) > 0 {
+		shared := map[string]*vz.SharedDirectory{}
+		for _, grant := range m.shares {
+			dir, e := vz.NewSharedDirectory(grant.Path, grant.ReadOnly)
+			if e != nil {
+				return nil, e
+			}
+			shared[grant.Name] = dir
+		}
+		share, e := vz.NewMultipleDirectoryShare(shared)
+		if e != nil {
+			return nil, e
+		}
+		device, e := vz.NewVirtioFileSystemDeviceConfiguration("away-shared")
+		if e != nil {
+			return nil, e
+		}
+		device.SetDirectoryShare(share)
+		config.SetDirectorySharingDevicesVirtualMachineConfiguration([]vz.DirectorySharingDeviceConfiguration{device})
+	}
+
 	input, e := os.Open(os.DevNull)
 	if e != nil {
 		return nil, e
@@ -257,4 +283,11 @@ func (m *Manager) OpenTerminal(ctx context.Context, actor string, job guestproto
 		return nil, errors.New("The Linux terminal service did not become ready")
 	}
 	return newTerminal(conn, job, cols, rows, s.mu.Unlock)
+}
+
+func (m *Manager) SetShares(shares []Share) {
+	m.Reset()
+	m.mu.Lock()
+	m.shares = append([]Share(nil), shares...)
+	m.mu.Unlock()
 }

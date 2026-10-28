@@ -1,4 +1,4 @@
-export const agentGuide={
+export const agentGuide={boundary:"The full /workspace filesystem is your boundary. Human-approved folders appear as live mounts under /workspace/Shared. Use fs_read to browse mounts; Terminal and Python use these same paths. Read-only grants are enforced. Host paths/processes outside these explicit grants are unavailable. Mounted data is not limited by the virtual-file import/export size limits inside the VM.",
  name:'away macOS workspace',version:3,
  start:['Call away_help (front end) or tool_guide (Site MCP).','Read shared state before changing files, notebooks, or documents.','Open or show a tool with window_control / away_window. Use code, jupyter, writer, chat, browser, explorer, or notebook (scratchpad).'],
  frontEnd:'The open page registers WebMCP tools through document.modelContext. They use the same validated actions and shared storage as the visible editors. Front-end tools are available only while the page is open.',

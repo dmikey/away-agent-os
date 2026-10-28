@@ -2,7 +2,7 @@ import fs from 'node:fs';import path from 'node:path';import vm from 'node:vm';i
 import ts from '../frontend/node_modules/typescript/lib/typescript.js';
 const cache=new Map();let snapshot={state:null,revision:-1};
 const connections={OpenAI:false,Anthropic:false,xAI:false};
-const bindings={async ProviderStatus(){return {...connections}},async CompleteProvider(id,provider,key,body){assert.equal(key,'','saved connections must not be replaced with an empty Bearer header');return {status:200,body:JSON.stringify({choices:[{message:{content:provider+' reply'}}]})}},async SandboxStatus(){return {available:true}},async ReadWorkspace(){return structuredClone(snapshot)},async CommitWorkspace(revision,json){await new Promise(r=>setTimeout(r,1));if(revision!==snapshot.revision)throw Error('Revision conflict; retry');snapshot={state:JSON.parse(json),revision:revision+1};return structuredClone(snapshot)}};
+const bindings={async SharedFolders(){return []},async ProviderStatus(){return {...connections}},async CompleteProvider(id,provider,key,body){assert.equal(key,'','saved connections must not be replaced with an empty Bearer header');return {status:200,body:JSON.stringify({choices:[{message:{content:provider+' reply'}}]})}},async SandboxStatus(){return {available:true}},async ReadWorkspace(){return structuredClone(snapshot)},async CommitWorkspace(revision,json){await new Promise(r=>setTimeout(r,1));if(revision!==snapshot.revision)throw Error('Revision conflict; retry');snapshot={state:JSON.parse(json),revision:revision+1};return structuredClone(snapshot)}};
 const window={go:{main:{App:bindings}},fetch:async()=>{throw Error('Unexpected network call')}};
 const globals={window,fetch:(...args)=>window.fetch(...args),location:{href:'http://wails.localhost/',origin:'http://wails.localhost'},crypto,structuredClone,TextEncoder,TextDecoder,Uint8Array,Date,atob,btoa,Response,Request,URL,AbortSignal,DOMException,setTimeout};
 function load(file){file=path.resolve(file);if(cache.has(file))return cache.get(file).exports;const module={exports:{}};cache.set(file,module);const output=ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;vm.runInNewContext('(function(require,module,exports){'+output+'\n})',globals)(p=>p==='cloudflare:workers'?{env:{}}:load(path.resolve(path.dirname(file),p+'.ts')),module,module.exports);return module.exports}
@@ -65,3 +65,17 @@ console.log('Concurrent editor changes preserved; conflicting terminal version r
 
 const {shouldOfferSetup}=load('frontend/setup-state.ts');assert(shouldOfferSetup(legacy,{}));assert(!shouldOfferSetup(legacy,{OpenAI:true}));assert(shouldOfferSetup(initialSpace(),{OpenAI:true}));
 console.log('Provider-less returning workspaces reopen setup without deleting their data.');
+
+const sharedPath='/workspace/Shared/project/note.txt';let physical={id:'native-file',path:sharedPath,kind:'file',content:'on disk',encoding:'utf8',version:40,modified:1,mounted:true,readOnly:false};let readOnly=false;
+bindings.SharedFolders=async()=>[{name:'project',path:'/workspace/Shared/project',hostPath:'/Users/private/project',available:true,readOnly}];
+bindings.ReadShared=async(path)=>{if(path===sharedPath)return {entry:{...physical,readOnly}};if(path==='/workspace/Shared/project')return {entry:{path,kind:'directory'},entries:[physical]};throw Error('not found')};
+bindings.WriteShared=async(path,content,encoding,expected)=>{assert.equal(path,sharedPath);if(readOnly)throw Error('read-only');assert.equal(expected,physical.version);physical={...physical,content,encoding,version:physical.version+1};return {...physical}};
+snapshot={state:initialSpace(),revision:0};
+let mounted=await command('fs_open',{path:sharedPath});assert.equal(mounted.state.workbench.activeFile,sharedPath);assert(!JSON.stringify(mounted.state).includes('/Users/private/project'));
+await command('file_write',{name:sharedPath,content:'editor saved to disk',expectedVersion:40});assert.equal(physical.content,'editor saved to disk');
+let projected=await load('frontend/store.ts').readSpace();assert.equal(projected.state.workbench.fs.entries.find(e=>e.path===sharedPath).version,41);
+const previousMountRevision=projected.mountRevision;physical={...physical,content:'external edit',version:42};projected=await load('frontend/store.ts').readSpace();assert.notEqual(projected.mountRevision,previousMountRevision);assert.equal(projected.state.workbench.fs.entries.find(e=>e.path===sharedPath).content,'external edit');
+await assert.rejects(()=>command('file_write',{name:sharedPath,content:'stale overwrite',expectedVersion:41}),/changed/);assert.equal(physical.content,'external edit');
+readOnly=true;await assert.rejects(()=>command('file_write',{name:sharedPath,content:'forbidden',expectedVersion:42}),/read-only/);assert.equal(physical.content,'external edit');
+const {readWorkspacePath}=load('frontend/mounted-fs.ts');const mountedRead=await readWorkspacePath(projected.state.workbench.fs,{path:sharedPath});assert.equal(mountedRead.entry.content,'external edit');
+console.log('Mounted editor and agent bridge: live saves, external edits, stale-write protection, read-only enforcement, no host-path leakage.');

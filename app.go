@@ -20,20 +20,23 @@ import (
 	"github.com/dmikey/away-agent-os/desktop/internal/guestproto"
 	"github.com/dmikey/away-agent-os/desktop/internal/macvm"
 	"github.com/dmikey/away-agent-os/desktop/internal/provider"
+	"github.com/dmikey/away-agent-os/desktop/internal/sharedfolders"
 	"github.com/dmikey/away-agent-os/desktop/internal/state"
 	"unicode/utf8"
 )
 
 // App exposes narrow native bindings only to the bundled frontend. It never loads remote UI.
 type App struct {
-	terminalMu sync.Mutex
-	terminals  map[string]*macvm.Terminal
-	store      *state.Store
-	vms        *macvm.Manager
-	vmError    string
-	ctx        context.Context
-	mu         sync.Mutex
-	requests   map[string]context.CancelFunc
+	folders     *sharedfolders.Registry
+	folderPicks map[string]string
+	terminalMu  sync.Mutex
+	terminals   map[string]*macvm.Terminal
+	store       *state.Store
+	vms         *macvm.Manager
+	vmError     string
+	ctx         context.Context
+	mu          sync.Mutex
+	requests    map[string]context.CancelFunc
 }
 
 func newApp() (*App, error) {
@@ -49,7 +52,10 @@ func newApp() (*App, error) {
 	if vmErr != nil {
 		reason = vmErr.Error()
 	}
-	return &App{store: state.New(filepath.Join(dir, "Away OS", "workspace.json")), vms: vms, vmError: reason, requests: map[string]context.CancelFunc{}}, nil
+	folders, _ := sharedfolders.New(filepath.Join(dir, "Away OS", "shared-folders.json"))
+	app := &App{folders: folders, store: state.New(filepath.Join(dir, "Away OS", "workspace.json")), vms: vms, vmError: reason, requests: map[string]context.CancelFunc{}}
+	app.configureFolderVMs()
+	return app, nil
 }
 func (a *App) startup(ctx context.Context) { a.ctx = ctx }
 func (a *App) shutdown(context.Context) {
@@ -101,11 +107,11 @@ type SandboxInfo struct {
 }
 
 func (a *App) SandboxStatus() SandboxInfo {
-	reason := "Dedicated Linux VM per actor. No host folders, native shell, process-control tools or network adapter. Network access goes through a default-deny Go proxy with per-actor domain rules. Code and notebooks share that actor's guest Python kernel."
+	reason := "Dedicated Linux VM per actor. Only folders explicitly shared by you can be mounted under /workspace/Shared. No native shell, host process-control tools or network adapter. Network access goes through a default-deny Go proxy with per-actor domain rules. Code and notebooks share that actor's guest Python kernel."
 	if a.vms == nil {
 		reason = "Sandbox unavailable: " + a.vmError + ". Execution is disabled."
 	}
-	return SandboxInfo{Backend: "apple-vz", Available: a.vms != nil, Reason: reason}
+	return SandboxInfo{Backend: "apple-vz", Available: a.vms != nil, HostMounts: len(a.SharedFolders()) > 0, Reason: reason}
 }
 func (a *App) ResetSandboxes() {
 	a.mu.Lock()
@@ -166,7 +172,7 @@ func (a *App) ExecuteRun(id, owner string) (guestproto.Result, error) {
 		}
 		job := guestproto.Job{ID: id, Kind: kind, Source: run.Source, FilePath: run.FilePath}
 		for _, f := range run.FSBase.Entries {
-			if f.Trashed == "" {
+			if f.Trashed == "" && !(len(a.SharedFolders()) > 0 && (f.Path == sharedfolders.Prefix || strings.HasPrefix(f.Path, sharedfolders.Prefix+"/"))) {
 				job.Files = append(job.Files, guestproto.File{Path: f.Path, Kind: f.Kind, Content: f.Content, Encoding: f.Encoding})
 			}
 		}
@@ -237,6 +243,24 @@ func (a *App) ExecuteRun(id, owner string) (guestproto.Result, error) {
 
 // Boot acknowledgment for isolated launch checks; never logs workspace contents or keys.
 func (a *App) FrontendReady() {
+	if os.Getenv("AWAY_SHARES_SMOKE_TEST") == "1" {
+		go func() {
+			defer wailsruntime.Quit(a.ctx)
+			ctx, cancel := context.WithTimeout(a.ctx, 90*time.Second)
+			defer cancel()
+			if a.vms == nil {
+				fmt.Println("SHARES_FAILED", a.vmError)
+				return
+			}
+			if e := a.vms.CheckShares(ctx); e != nil {
+				fmt.Println("SHARES_FAILED", e)
+			} else {
+				fmt.Println("SHARES_READY")
+			}
+		}()
+		return
+	}
+
 	if os.Getenv("AWAY_TERMINAL_SMOKE_TEST") == "1" {
 		go func() {
 			defer wailsruntime.Quit(a.ctx)

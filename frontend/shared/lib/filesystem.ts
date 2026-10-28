@@ -1,4 +1,4 @@
-export type Entry={id:string;path:string;kind:'file'|'directory';content:string;encoding:'utf8'|'base64';version:number;modified:number;trashed?:string;originalPath?:string};
+export type Entry={mounted?:boolean;readOnly?:boolean;size?:number;id:string;path:string;kind:'file'|'directory';content:string;encoding:'utf8'|'base64';version:number;modified:number;trashed?:string;originalPath?:string};
 export type FileSystem={revision:number;entries:Entry[]};
 export const ROOT='/workspace';
 export function pathOf(value:unknown){if(typeof value!=='string'||!value.trim()||value.includes('\0')||value.includes('\\'))throw Error('Use a workspace path.');const raw=value.startsWith('/')?value:ROOT+'/'+value;const parts:string[]=[];for(const p of raw.split('/')){if(!p||p==='.')continue;if(p==='..'){if(parts.length<=1)throw Error('Path leaves /workspace.');parts.pop()}else{if(p.length>120||/[\x00-\x1f]/.test(p))throw Error('Invalid file name.');parts.push(p)}}const path='/'+parts.join('/');if(path!==ROOT&&!path.startsWith(ROOT+'/'))throw Error('Path must be inside /workspace.');if(path.length>400)throw Error('Path is too long.');return path;}

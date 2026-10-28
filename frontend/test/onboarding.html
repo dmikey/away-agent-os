@@ -2,7 +2,7 @@
 // Browser-only test fixture. Not included in the production Vite entry or app bundle.
 let snapshot=JSON.parse(sessionStorage.getItem('away-fixture')||'null')||{state:null,revision:-1};let terminalText="";const connected=JSON.parse(sessionStorage.getItem('away-fixture-providers')||'{}');
 window.go={main:{App:{
- async ReadWorkspace(){return structuredClone(snapshot)},
+ async SharedFolders(){return []},async ReadWorkspace(){return structuredClone(snapshot)},
  async CommitWorkspace(revision,json){if(revision!==snapshot.revision)throw Error('Revision conflict');snapshot={state:JSON.parse(json),revision:revision+1};if(revision===-1&&new URLSearchParams(location.search).has('returning')){delete snapshot.state.setup;}sessionStorage.setItem('away-fixture',JSON.stringify(snapshot));return structuredClone(snapshot)},
  async ProviderStatus(){return connected},async SandboxStatus(){return {available:false,reason:'Browser test fixture; execution unavailable.'}},
  async OpenExternal(url){window.fixtureExternalURL=url},async FrontendReady(){window.fixtureReady=true},

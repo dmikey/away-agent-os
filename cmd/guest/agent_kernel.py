@@ -1,5 +1,6 @@
 import sys,json,io,contextlib,traceback,os
 out=sys.stdout
+sys.path.insert(0,'/workspace')
 scope={'__name__':'__main__'}
 class Capture(io.StringIO):
  def write(self,value):
@@ -10,8 +11,11 @@ for line in sys.stdin:
  try:
   job=json.loads(line);os.chdir('/workspace')
   with contextlib.redirect_stdout(capture),contextlib.redirect_stderr(capture):
-   if job.get('filePath'):scope['__file__']=job['filePath']
-   exec(compile(job['source'],job.get('filePath') or '<away-cell>','exec'),scope,scope)
+   previous_path=list(sys.path)
+   if job.get('filePath'):
+    scope['__file__']=job['filePath'];sys.path.insert(0,os.path.dirname(job['filePath']))
+   try: exec(compile(job['source'],job.get('filePath') or '<away-cell>','exec'),scope,scope)
+   finally: sys.path[:]=previous_path
  except BaseException:
   failed=True;capture.write(traceback.format_exc())
  out.write(json.dumps({'output':capture.getvalue(),'error':failed})+'\n');out.flush()
