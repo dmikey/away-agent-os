@@ -52,6 +52,12 @@ func newApp() (*App, error) {
 	if vmErr != nil {
 		reason = vmErr.Error()
 	}
+	if vms != nil {
+		if e := vms.Gateway.ConfigurePermissions(filepath.Join(dir, "Away OS", "network-permissions.json")); e != nil {
+			vms.Close()
+			return nil, e
+		}
+	}
 	folders, _ := sharedfolders.New(filepath.Join(dir, "Away OS", "shared-folders.json"))
 	app := &App{folders: folders, store: state.New(filepath.Join(dir, "Away OS", "workspace.json")), vms: vms, vmError: reason, requests: map[string]context.CancelFunc{}}
 	app.configureFolderVMs()
@@ -448,4 +454,23 @@ func (a *App) CloseBrowser(actor string) {
 	if a.vms != nil {
 		a.vms.CloseBrowser(actor)
 	}
+}
+
+func (a *App) ResolveNetworkAccessChoice(id, choice string) (gateway.AccessRequest, error) {
+	if a.vms == nil {
+		return gateway.AccessRequest{}, errors.New("Sandbox unavailable")
+	}
+	return a.vms.Gateway.ResolveAccessChoice(id, choice)
+}
+func (a *App) NetworkPermissions() map[string]gateway.Permission {
+	if a.vms == nil {
+		return map[string]gateway.Permission{}
+	}
+	return a.vms.Gateway.Permissions()
+}
+func (a *App) SetNetworkPermissions(actor string, session, remembered []string, all bool) error {
+	if a.vms == nil {
+		return errors.New("Sandbox unavailable")
+	}
+	return a.vms.Gateway.SetPermissions(actor, session, remembered, all)
 }

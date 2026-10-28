@@ -80,11 +80,9 @@ func (p *Proxy) RequestAccess(ctx context.Context, actor, raw, reason string) (A
 	req := AccessRequest{ID: hex.EncodeToString(nonce[:]), Actor: actor, Host: host, URL: u.String(), Reason: reason, Status: "pending", Created: now.UnixMilli(), Expires: now.Add(3 * time.Minute).UnixMilli()}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, d := range p.policies[actor] {
-		if d == host {
-			req.Status = "approved"
-			return req, nil
-		}
+	if p.allowedLocked(actor, host) {
+		req.Status = "approved"
+		return req, nil
 	}
 	if p.access == nil {
 		p.access = map[string]*accessPending{}
@@ -122,6 +120,17 @@ func (p *Proxy) AccessRequests() []AccessRequest {
 	return out
 }
 func (p *Proxy) ResolveAccess(id string, allow bool) (AccessRequest, error) {
+	choice := "deny"
+	if allow {
+		choice = "session"
+	}
+	return p.ResolveAccessChoice(id, choice)
+}
+func (p *Proxy) ResolveAccessChoice(id, choice string) (AccessRequest, error) {
+	if choice != "deny" && choice != "session" && choice != "always" && choice != "all" {
+		return AccessRequest{}, errors.New("Unknown network permission choice")
+	}
+	allow := choice != "deny"
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	a := p.access[id]
@@ -132,7 +141,32 @@ func (p *Proxy) ResolveAccess(id string, allow bool) (AccessRequest, error) {
 	if a.request.Status != "pending" {
 		return a.request, errors.New("This request has already been resolved or expired")
 	}
-	if allow {
+	if choice == "always" || choice == "all" {
+		next := p.copyRememberedLocked()
+		v := next[a.request.Actor]
+		if choice == "all" {
+			v.AllowAll = true
+		} else {
+			found := false
+			for _, d := range v.Domains {
+				if d == a.request.Host {
+					found = true
+				}
+			}
+			if !found {
+				if len(v.Domains) >= 40 {
+					return a.request, errors.New("This actor already has 40 remembered domains")
+				}
+				v.Domains = append(v.Domains, a.request.Host)
+			}
+		}
+		next[a.request.Actor] = v
+		if e := p.savePermissionsLocked(next); e != nil {
+			return a.request, e
+		}
+		p.remembered = next
+	}
+	if choice == "session" {
 		domains := p.policies[a.request.Actor]
 		found := false
 		for _, d := range domains {
@@ -146,15 +180,25 @@ func (p *Proxy) ResolveAccess(id string, allow bool) (AccessRequest, error) {
 			}
 			p.policies[a.request.Actor] = append(domains, a.request.Host)
 		}
+	}
+	if allow {
 		a.request.Status = "approved"
 	} else {
 		a.request.Status = "denied"
 	}
-	p.events = append([]Event{{At: time.Now().UnixMilli(), Actor: a.request.Actor, Host: a.request.Host, Method: "ACCESS", Decision: a.request.Status, Status: map[bool]int{true: 200, false: 403}[allow]}}, p.events...)
+	decision := a.request.Status
+	if choice == "always" {
+		decision = "approved-always"
+	}
+	if choice == "all" {
+		decision = "approved-all-public"
+	}
+	p.events = append([]Event{{At: time.Now().UnixMilli(), Actor: a.request.Actor, Host: a.request.Host, Method: "ACCESS", Decision: decision, Status: map[bool]int{true: 200, false: 403}[allow]}}, p.events...)
 	if len(p.events) > 200 {
 		p.events = p.events[:200]
 	}
 	close(a.done)
+	p.approvePendingLocked(a.request.Actor)
 	return a.request, nil
 }
 func (p *Proxy) CancelAccess(actor, id string) {

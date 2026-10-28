@@ -32,15 +32,17 @@ type Event struct {
 	Bytes    int64  `json:"bytes"`
 }
 type Proxy struct {
-	access   map[string]*accessPending
-	contexts map[string]map[string]context.CancelFunc
-	mu       sync.Mutex
-	policies map[string][]string
-	events   []Event
-	rates    map[string][]time.Time
-	active   map[string]int
-	lookup   func(context.Context, string) ([]net.IPAddr, error)
-	dial     func(context.Context, string, string) (net.Conn, error)
+	permissionFile string
+	remembered     map[string]savedPermission
+	access         map[string]*accessPending
+	contexts       map[string]map[string]context.CancelFunc
+	mu             sync.Mutex
+	policies       map[string][]string
+	events         []Event
+	rates          map[string][]time.Time
+	active         map[string]int
+	lookup         func(context.Context, string) ([]net.IPAddr, error)
+	dial           func(context.Context, string, string) (net.Conn, error)
 }
 
 func New() *Proxy {
@@ -100,12 +102,7 @@ func (p *Proxy) record(e Event) {
 func (p *Proxy) admit(actor, host string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	allowed := false
-	for _, d := range p.policies[actor] {
-		if host == d {
-			allowed = true
-		}
-	}
+	allowed := p.allowedLocked(actor, host)
 	if !allowed || p.active[actor] >= 4 {
 		return false
 	}
