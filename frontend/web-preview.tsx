@@ -1,7 +1,11 @@
 import {useEffect,useState} from 'react';
-import {native} from './native';
-export function SafeWebPreview({url}:{url:string}){
- const [text,setText]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(true),[truncated,setTruncated]=useState(false);
- useEffect(()=>{let active=true;setBusy(true);setError('');native().FetchWeb('you',url,30000).then(r=>{if(active){setText(r.text);setTruncated(r.truncated)}}).catch(e=>{if(active)setError(String(e))}).finally(()=>{if(active)setBusy(false)});return()=>{active=false}},[url]);
- return <div className="native-web-preview"><header><strong>Readable web</strong><small>Go-controlled fetch · untrusted source text</small></header>{busy?<p>Fetching through the network gateway…</p>:error?<div role="alert"><p>{error}</p><small>Approve this exact domain in Local runtime → Network → You. External scripts and pages are never embedded in the privileged desktop WebView.</small></div>:<><pre>{text}</pre>{truncated&&<small>Trimmed at the text limit.</small>}</>}</div>;
+import {fetchAgentWeb} from './network-access';
+import type {BrowserPage} from './shared/lib/space';
+export function SafeWebPreview({url,actor='you',page,owner='You'}:{url:string;actor?:string;page?:BrowserPage;owner?:string}){
+ const [text,setText]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(true),[truncated,setTruncated]=useState(false),[status,setStatus]=useState<number>();
+ useEffect(()=>{let active=true;const controller=new AbortController();setBusy(true);setError('');
+ if(page?.url===url&&page.actor===actor){setText(page.text||'');setError(page.error||'');setTruncated(!!page.truncated);setStatus(page.status);setBusy(false);return}
+ if(actor!=='you'){setText('');return}
+ fetchAgentWeb(actor,url,30000,controller.signal).then(r=>{if(!active)return;if('error' in r)setError(r.error);else{setText(r.text);setTruncated(r.truncated);setStatus(r.status)}}).catch(e=>{if(active)setError(String(e))}).finally(()=>{if(active)setBusy(false)});return()=>{active=false;controller.abort()}},[url,actor,page]);
+ return <div className="native-web-preview"><header><strong>Readable web{status?' · HTTP '+status:''}</strong><small>{owner} · Go-controlled fetch · untrusted source text</small></header>{busy?<p>Waiting for approval or reading through the network gateway…</p>:error?<div role="alert"><p>{error}</p><small>Access is scoped to the requesting agent. Use the permission dialog to allow a domain; manage grants in Local runtime → Network.</small></div>:<><pre>{text}</pre>{truncated&&<small>Trimmed at the text limit.</small>}</>}</div>;
 }
