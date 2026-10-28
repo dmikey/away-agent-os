@@ -65,6 +65,12 @@ func main() {
 
 	exec.Command("/bin/busybox", "ip", "link", "set", "lo", "up").Run()
 	go networkProxy()
+	cmdline, _ := os.ReadFile("/proc/cmdline")
+	if strings.Contains(string(cmdline), "away_browser=1") {
+		syscall.Setrlimit(syscall.RLIMIT_NOFILE, &syscall.Rlimit{Cur: 1024, Max: 1024})
+		browserServer()
+		return
+	}
 	go terminalServer()
 	l, e := vsock.Listen(guestproto.Port, nil)
 	if e != nil {

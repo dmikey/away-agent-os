@@ -1,0 +1,16 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+import ts from '../frontend/node_modules/typescript/lib/typescript.js';
+const calls=[];let inflight=0;let fail=false;
+const frame={identity:'away-browser-vm/v1',url:'https://example.com/',title:'Example',text:'Visible page',links:[],controls:[{tag:'BUTTON',label:'Continue',x:50,y:80}],width:1000,height:700,sandboxed:true,jpeg:'PRIVATE_FRAME_BYTES'};
+const bindings={async BrowserAction(actor,action){assert.equal(inflight++,0,'browser operations must serialize');calls.push({actor,...action});await new Promise(r=>setTimeout(r,5));inflight--;if(fail){fail=false;throw Error('Sandbox unavailable')}return structuredClone(frame)},async CloseBrowser(actor){assert.equal(inflight,0);calls.push({actor,kind:'close'})}};
+const module={exports:{}};
+const code=ts.transpileModule(fs.readFileSync('frontend/browser-session.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+vm.runInNewContext('(function(require,module,exports){'+code+'})',{setTimeout})(()=>({native:()=>bindings}),module,module.exports);
+const browser=module.exports;
+await Promise.all([browser.openSandboxBrowser('donald',frame.url),browser.openSandboxBrowser('donald',frame.url),browser.sandboxBrowser('donald',{kind:'read'})]);
+assert.deepEqual(calls.map(c=>c.kind),['navigate','frame','read'],'UI and agent must share one navigation');
+await browser.openSandboxBrowser('marv',frame.url);assert.deepEqual(calls.slice(-2).map(c=>c.kind),['close','navigate']);assert.equal(calls.at(-2).actor,'donald');
+const result=browser.readableBrowserResult(frame,7);assert.equal(result.text,'Visible');assert.equal(result.truncated,true);assert.equal(result.jpeg,undefined);assert(!JSON.stringify(result).includes('PRIVATE_FRAME_BYTES'));assert.equal(result.controls[0].label,'Continue');
+fail=true;await assert.rejects(browser.openSandboxBrowser('marv',frame.url));await browser.openSandboxBrowser('marv',frame.url);assert.equal(calls.at(-1).kind,'navigate','failed renderer must not masquerade as an existing page');
+await browser.closeSandboxBrowser('marv');assert.equal(calls.at(-1).kind,'close');
+console.log('Browser broker: serialized UI/agent operations, one shared page, actor teardown, bounded readable evidence without frame bytes, explicit failures and recovery passed.');

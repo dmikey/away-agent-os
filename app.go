@@ -425,3 +425,27 @@ func (a *App) CancelNetworkAccess(actor, id string) {
 		a.vms.Gateway.CancelAccess(actor, id)
 	}
 }
+
+// BrowserAction exposes a bounded broker, never raw CDP or native web content.
+func (a *App) BrowserAction(actor string, action guestproto.BrowserAction) (guestproto.BrowserFrame, error) {
+	if a.vms == nil {
+		return guestproto.BrowserFrame{}, errors.New("Sandbox unavailable")
+	}
+	if action.Kind == "navigate" {
+		r, e := a.RequestNetworkAccess(actor, action.URL, "Open a website in the sandboxed browser.")
+		if e != nil {
+			return guestproto.BrowserFrame{}, e
+		}
+		if r.Status != "approved" {
+			return guestproto.BrowserFrame{}, errors.New("Approve this domain first")
+		}
+	}
+	ctx, cancel := context.WithTimeout(a.ctx, 60*time.Second)
+	defer cancel()
+	return a.vms.BrowserAction(ctx, actor, action)
+}
+func (a *App) CloseBrowser(actor string) {
+	if a.vms != nil {
+		a.vms.CloseBrowser(actor)
+	}
+}

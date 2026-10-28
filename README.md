@@ -52,7 +52,7 @@ Agents show the app they are working in. For new Writer work, `document_write` w
 
 macOS uses Apple’s Virtualization.framework directly. Firecracker requires Linux KVM; it is not the active macOS backend. There is no nested virtualization dependency on M1/M2.
 
-Each actor receives a 512 MB, two-vCPU Linux VM; at most three VMs are active. The filesystem boundary is the complete `/workspace`: virtual workspace files plus folders explicitly shared by the user under `/workspace/Shared`. Approved folders use live Apple virtiofs mounts with per-folder read-only or read/write enforcement. No host block disks, SSH agents, native process handles or network adapters are attached. Bounded workspace/result messages, approved virtiofs shares, and the controlled HTTP proxy are the communication paths.
+Each actor receives a 512 MB, two-vCPU Linux VM; at most three code VMs are active, plus one separate browser VM. The filesystem boundary is the complete `/workspace`: virtual workspace files plus folders explicitly shared by the user under `/workspace/Shared`. Approved folders use live Apple virtiofs mounts with per-folder read-only or read/write enforcement. No host block disks, SSH agents, native process handles or network adapters are attached. Bounded workspace/result messages, approved virtiofs shares, and the controlled HTTP proxy are the communication paths.
 
 The guest runs Python and shell commands as UID 1000. Code is not passed to a host shell or interpreter. The host enforces a watchdog and stops VMs on cancellation or shutdown. There is no host execution fallback. Use **Local runtime → Isolation → Reset all VMs** to discard guest kernel variables.
 
@@ -60,7 +60,11 @@ Networking starts with an empty per-actor allowlist on each app launch. In **Loc
 
 The proxy permits HTTP on port 80 and HTTPS CONNECT on port 443. Limits are 60 requests/minute, four connections per actor, a 60-second connection lifetime, 1 MB HTTP request bodies, 4 MB HTTP responses and 4 MB per TLS direction. HTTPS tunnel contents stay encrypted. The in-memory activity log holds 200 destination/decision/status/byte records; headers, queries, bodies and API keys are omitted. Explicit `web_fetch` requests have a 30-second limit, do not follow redirects, and trim returned text to at most 50,000 characters.
 
-External web pages are not embedded in the privileged native WebView. They appear as escaped readable text through the controlled fetch tool; a human can open HTTPS links in the system browser. The built-in `away://` pages are bundled local assets.
+Browser offers **Website**, **Readable**, and **Split view**. External pages run in Chromium inside a separate, ephemeral 2 GB Linux VM, never in the privileged Wails WebView. Away displays bounded JPEG frames and forwards bounded clicks, text, keys and scrolling. Readable mode extracts text, links and visible control coordinates from the same rendered DOM. Agents use `browser_navigate` and `browser_action`; raw CDP and arbitrary JavaScript evaluation are not exposed. If rendering fails, agents may use the existing Go text fetch, explicitly labeled with the rendering error; there is no host execution fallback. The bundled `away://` pages remain local assets.
+
+The browser VM has **no shared folders, workspace imports, terminal/job service, host disks, API keys, native bindings or network adapter**. Chromium runs as UID 2000 with its own Linux sandbox; Away requires renderer user namespaces, `NoNewPrivs` and seccomp filtering before returning a frame. There is no sandbox-disable switch. Its debugging channel is a private guest pipe, not a TCP port. Downloads, file pickers and new windows are disabled. Profiles/cookies are ephemeral and discarded when the browser is closed or the app exits. Only one browser owner is active; changing actor discards that browser VM.
+
+The browser's only uplink is the same Go proxy and per-actor policy. Redirects and embedded resources on new domains queue the same human Allow/Deny dialog; approving one origin never approves its CDNs automatically. IP/private/local destinations and nonstandard ports remain blocked. Existing proxy size, connection and rate limits apply, so large assets and some sites may not load. The initial viewport is 1000 × 700, scaled to fit the window. This is interactive frame-based browsing, not video streaming.
 
 ## Share a folder
 
@@ -79,7 +83,7 @@ go install github.com/wailsapp/wails/v2/cmd/wails@v2.17.0
 ./scripts/build.sh
 ```
 
-The build downloads only pinned Linux/Alpine/Python artifacts listed in `sandbox/macos-guest-lock.json`, verifies their SHA-256 hashes, cross-compiles the Linux-only guest agent, and assembles a reproducible initramfs. Guest programs are never executed on the Mac during the build. `AWAY_GUEST_SOURCE_CACHE` can select an existing verified source cache.
+The build downloads only pinned Linux/Alpine/Python artifacts listed in `sandbox/macos-guest-lock.json` and `sandbox/browser-guest-lock.json`, verifies their SHA-256 hashes, cross-compiles the Linux-only guest agent, and assembles a reproducible initramfs. Guest programs are never executed on the Mac during the build. `AWAY_GUEST_SOURCE_CACHE` can select an existing verified source cache.
 
 The package script generates Finder/Dock/Retina icons from `build/appicon.png`, builds outside iCloud-synced Documents folders, signs with the `com.apple.security.virtualization` entitlement, verifies the signature, and writes `build/bin/Away OS-macOS-arm64.zip`. It prefers a single installed Developer ID Application certificate, using hardened runtime and a secure timestamp. Set `AWAY_SIGN_IDENTITY` to select a certificate when several are installed, or `-` for an ad-hoc development build. Without a Developer ID certificate it falls back to ad-hoc signing. It prints the staged `.app` path. Signing does **not** notarize the app; notarization remains a separate release step.
 
@@ -95,6 +99,17 @@ codesign --force --sign - --entitlements build/darwin-entitlements.plist /tmp/aw
 ```
 
 The VM check boots real Linux guests and verifies Linux identity, inaccessible/unchanged host canaries, workspace export, persistent Python variables, separate actor kernels, cancellation, default-deny networking, one explicitly approved `example.com` HTTPS request, separate actor policies and recorded activity. All check VMs are stopped afterward. No provider API calls are part of these tests.
+
+
+For the dedicated browser boundary check (Apple Silicon macOS):
+
+```sh
+go build -tags browsercheck -o /tmp/away-browsercheck ./cmd/browsercheck
+codesign --force --sign - --entitlements build/darwin-entitlements.plist /tmp/away-browsercheck
+/tmp/away-browsercheck
+```
+
+This boots the real VM, verifies Chromium renderer sandboxing and frame delivery, rejects file navigation, exercises JavaScript/click/type/live DOM against a **test-only proxy fixture**, then renders an explicitly approved public `example.com` page. The fixture handler and its explicit-HTTP boot configuration are build-tagged out of production binaries; production keeps Chromium HTTPS upgrades. The check also configures a disposable shared-folder canary: the browser must start without mounting it or attaching a network adapter, and the host file must remain unchanged. It does not use provider keys or user files.
 
 Set `AWAY_SHARES_SMOKE_TEST=1` and `AWAY_DATA_DIR` to a temporary directory when launching the signed app to verify live virtiofs reads/writes, read-only enforcement, large-file access, sibling Python imports, mount survival across workspace refreshes, shared access from another actor, revocation, and the full virtual filesystem boundary. This uses disposable fixture folders only. The signed CLI runs the same check with `AWAY_SHARE_CHECK=1 /tmp/away-vmcheck`.
 
@@ -112,7 +127,7 @@ The inherited virtual filesystem currently supports 256 entries and 2.4 MB encod
 
 ## Status and security scope
 
-This is a working development prototype, not a completed security audit. Passing boundary tests does not prove protection against every hypervisor, kernel, WebView or application vulnerability. Source review, dependency maintenance, signed distribution, stronger audit persistence, sandbox lifecycle polish, and independent security testing remain before production use with sensitive data. A task board, canvas, Git UI, media suite, shared audio and full browser automation are still planned; the tool catalog does not claim those exist.
+This is a working development prototype, not a completed security audit. Passing boundary tests does not prove protection against every hypervisor, kernel, WebView or application vulnerability. Source review, dependency maintenance, signed distribution, stronger audit persistence, sandbox lifecycle polish, and independent security testing remain before production use with sensitive data. A task board, canvas, Git UI, media suite, shared audio and broader browser automation are still planned; the tool catalog does not claim those exist.
 
 ## Third-party software
 

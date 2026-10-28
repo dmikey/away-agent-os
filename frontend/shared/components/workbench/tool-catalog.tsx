@@ -5,6 +5,9 @@ import {toolDefinitions} from '../../lib/space';
 import {frontendMappings} from './frontend-mcp';
 type Tool={name:string;description:string;inputSchema:any};
 const extras:Tool[]=[
+ {...toolDefinitions.find(t=>t.name==='browser_navigate')!,name:'away_browser_navigate'},
+ {...toolDefinitions.find(t=>t.name==='browser_action')!,name:'away_browser_action'},
+ {...toolDefinitions.find(t=>t.name==='network_request')!,name:'away_network_request'},
  {...toolDefinitions.find(t=>t.name==='web_fetch')!,name:'away_web_fetch'},
  {name:'away_help',description:'Read the agent handbook, workflows, examples, and runtime limits.',inputSchema:{properties:{}}},
  {name:'away_read',description:'Read the desktop, messages, saved artifacts, and focused window. Provider keys are excluded.',inputSchema:{properties:{includeMedia:{type:'boolean'}}}},

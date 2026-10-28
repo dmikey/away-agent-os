@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -55,27 +56,53 @@ func New() (*Manager, error) {
 	}
 	return &Manager{dir: dir, sessions: map[string]*session{}, Gateway: gateway.New()}, nil
 }
-func (m *Manager) session(actor string) (*session, error) {
+func (m *Manager) session(actor string) (*session, error) { return m.sessionProfile(actor, false) }
+func (m *Manager) sessionProfile(actor string, browser bool) (*session, error) {
 	if !regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`).MatchString(actor) {
 		return nil, errors.New("Invalid sandbox actor")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s := m.sessions[actor]; s != nil {
+	key := actor
+	if browser {
+		key = "browser:" + actor
+	}
+	if s := m.sessions[key]; s != nil {
 		return s, nil
 	}
-	if len(m.sessions) >= 3 {
+	count := 0
+	for k := range m.sessions {
+		if browser && strings.HasPrefix(k, "browser:") {
+			return nil, errors.New("Another agent owns the browser. Close it before switching agents")
+		}
+		if !strings.HasPrefix(k, "browser:") {
+			count++
+		}
+	}
+	if !browser && count >= 3 {
 		return nil, errors.New("Three agent VMs are already active. Reset sandboxes to free memory")
 	}
 	cmdline := "console=hvc0 rdinit=/init panic=-1 quiet"
-	if len(m.shares) > 0 {
+	if !browser && len(m.shares) > 0 {
 		cmdline += " away_shared=1"
 	}
-	boot, e := vz.NewLinuxBootLoader(filepath.Join(m.dir, "vmlinuz"), vz.WithInitrd(filepath.Join(m.dir, "initramfs.gz")), vz.WithCommandLine(cmdline))
+	image := "initramfs.gz"
+	memory := uint64(512 * 1024 * 1024)
+	if browser {
+		cmdline += " away_browser=1" + browserKernelArgs()
+		image = "browser-initramfs.gz"
+		memory = 2 * 1024 * 1024 * 1024
+		if _, e := os.Stat(filepath.Join(m.dir, image)); e != nil {
+			if e = prepareBrowserAssets(m.dir); e != nil {
+				return nil, e
+			}
+		}
+	}
+	boot, e := vz.NewLinuxBootLoader(filepath.Join(m.dir, "vmlinuz"), vz.WithInitrd(filepath.Join(m.dir, image)), vz.WithCommandLine(cmdline))
 	if e != nil {
 		return nil, e
 	}
-	config, e := vz.NewVirtualMachineConfiguration(boot, 2, 512*1024*1024)
+	config, e := vz.NewVirtualMachineConfiguration(boot, 2, memory)
 	if e != nil {
 		return nil, e
 	}
@@ -90,7 +117,7 @@ func (m *Manager) session(actor string) (*session, error) {
 	}
 	config.SetEntropyDevicesVirtualMachineConfiguration([]*vz.VirtioEntropyDeviceConfiguration{entropy})
 	// Only explicitly granted directories are attached. No host disks, sockets or network adapter.
-	if len(m.shares) > 0 {
+	if !browser && len(m.shares) > 0 {
 		shared := map[string]*vz.SharedDirectory{}
 		for _, grant := range m.shares {
 			dir, e := vz.NewSharedDirectory(grant.Path, grant.ReadOnly)
@@ -158,11 +185,15 @@ func (m *Manager) session(actor string) (*session, error) {
 		output.Close()
 		return nil, e
 	}
-	server := &http.Server{Handler: m.Gateway.Handler(actor), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 16384}
+	handler := m.Gateway.Handler(actor)
+	if browser {
+		handler = m.browserProxyHandler(actor)
+	}
+	server := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 15 * time.Second, MaxHeaderBytes: 16384}
 	s.proxyServer = server
 	s.proxyListener = listener
 	go server.Serve(listener)
-	m.sessions[actor] = s
+	m.sessions[key] = s
 	return s, nil
 }
 func (m *Manager) drop(actor string, s *session) {

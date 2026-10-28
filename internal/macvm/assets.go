@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-//go:embed assets/vmlinuz assets/initramfs.gz assets/manifest.json
+//go:embed assets/vmlinuz assets/initramfs.gz assets/manifest.json assets/browser-initramfs.gz assets/browser-manifest.json
 var assets embed.FS
 
 func prepareAssets() (string, error) {
@@ -49,4 +49,27 @@ func prepareAssets() (string, error) {
 	}
 	ok = true
 	return dir, nil
+}
+
+// Browser image is extracted on demand; ordinary code VMs stay small.
+func prepareBrowserAssets(dir string) error {
+	raw, e := assets.ReadFile("assets/browser-manifest.json")
+	if e != nil {
+		return e
+	}
+	var manifest struct {
+		Files map[string]string `json:"files"`
+	}
+	if json.Unmarshal(raw, &manifest) != nil {
+		return errors.New("Invalid browser manifest")
+	}
+	b, e := assets.ReadFile("assets/browser-initramfs.gz")
+	if e != nil {
+		return e
+	}
+	sum := sha256.Sum256(b)
+	if hex.EncodeToString(sum[:]) != manifest.Files["browser-initramfs.gz"] {
+		return errors.New("Browser image integrity check failed")
+	}
+	return os.WriteFile(filepath.Join(dir, "browser-initramfs.gz"), b, 0600)
 }
