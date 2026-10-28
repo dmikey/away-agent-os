@@ -79,3 +79,18 @@ await assert.rejects(()=>command('file_write',{name:sharedPath,content:'stale ov
 readOnly=true;await assert.rejects(()=>command('file_write',{name:sharedPath,content:'forbidden',expectedVersion:42}),/read-only/);assert.equal(physical.content,'external edit');
 const {readWorkspacePath}=load('frontend/mounted-fs.ts');const mountedRead=await readWorkspacePath(projected.state.workbench.fs,{path:sharedPath});assert.equal(mountedRead.entry.content,'external edit');
 console.log('Mounted editor and agent bridge: live saves, external edits, stale-write protection, read-only enforcement, no host-path leakage.');
+
+const {retireUnusedStarterAgents,legacyStarterAgents}=load('frontend/legacy-agents.ts');
+const oldSeeded=initialSpace();oldSeeded.agents=structuredClone(legacyStarterAgents);delete oldSeeded.setup;
+assert.equal(retireUnusedStarterAgents(oldSeeded).agents.length,0);
+const customized=structuredClone(oldSeeded);customized.agents[0].instructions+=' User changes.';customized.messages=[{id:'history',from:'you',channel:'fern',text:'Hello',at:1}];customized.agents.push({...legacyStarterAgents[2],id:'user-created-otto'});
+assert.deepEqual(Array.from(retireUnusedStarterAgents(customized).agents,a=>a.id),['milo','fern','user-created-otto']);
+const chosen=structuredClone(oldSeeded);chosen.setup={version:1,completed:true,firstAgentId:'otto'};assert.equal(retireUnusedStarterAgents(chosen).agents[0].id,'otto');
+const historical=structuredClone(oldSeeded);historical.activity.push({id:'edited',who:'you',text:'saved Otto',at:1});assert.equal(retireUnusedStarterAgents(historical).agents[0].id,'otto');
+snapshot={state:oldSeeded,revision:0};bindings.SharedFolders=async()=>[];
+await load('frontend/store.ts').readSpace();assert.equal(snapshot.state.agents.length,0);assert.equal(snapshot.revision,1);
+const migrated=await command('setup_complete',{agent:{name:'My agent',provider:'Anthropic',model:'test',instructions:'Help'},revisit:true});assert.equal(migrated.state.agents.length,1);
+const chosenId=migrated.state.agents[0].id;const storedMessages=structuredClone(snapshot.state.messages),storedFiles=JSON.stringify(snapshot.state.workbench.fs);
+const removed=await act('agent_delete',{agentId:chosenId});assert(removed.ok);assert.equal(snapshot.state.agents.length,0);assert.equal(JSON.stringify(snapshot.state.workbench.fs),storedFiles);assert.deepEqual(snapshot.state.messages,storedMessages);assert.equal(snapshot.state.setup.completed,true);assert(!snapshot.state.setup.firstAgentId);assert(connections.Anthropic);
+assert.equal((await act('agent_delete',{agentId:'missing'})).status,400);
+console.log('Legacy starter migration retires only untouched unused seeds; custom, used, saved and chosen agents survive. Human removal preserves messages, files, setup and provider connection.');

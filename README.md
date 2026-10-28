@@ -10,6 +10,8 @@ Away welcomes new workspaces with a four-step setup: choose OpenAI, Anthropic, o
 
 Setup opens only Messenger, directly in a conversation with your new agent. Other apps are available from the Dock. Setup starts for a new workspace or when no provider key is saved. Existing files, messages, and agents are preserved; returning users can cancel the assistant to keep working offline. To run it again, open **Chat settings → Connection → Setup assistant…**. This adds a provider/agent without deleting existing work.
 
+Manage agents in **Messenger → Chat settings → Agents**, or use the settings button beside **AGENTS** in the sidebar. Add, edit, or remove profiles there; double-clicking a sidebar agent also opens its editor. Removing a profile keeps workspace files, messages, and provider credentials. Older untouched, unused Milo/Fern/Otto starter profiles are retired automatically; edited, chosen, or used profiles are preserved.
+
 ## What works
 
 - ICQ-inspired messenger, agent definitions, rooms, and Keychain-backed provider connections.

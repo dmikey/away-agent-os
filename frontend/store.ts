@@ -1,11 +1,12 @@
 import {native} from './native';
+import {retireUnusedStarterAgents} from './legacy-agents';
 import {hydrateMounts,isShared,loadMountedTarget,saveMountedChanges} from './mounted-fs';
 import {pathOf,findEntry} from './shared/lib/filesystem';
 import {completeSetup} from './setup-state';
 import {initialSpace,applyCommand,type Space} from './shared/lib/space';
 import {mergeTerminalFiles,normalizeWorkbench} from './shared/lib/workbench';
 export async function readSpace():Promise<{state:Space;revision:number;mountRevision?:string}>{
- for(let i=0;i<5;i++){const data=await native().ReadWorkspace();if(data.state){const state=await hydrateMounts(data.state);const mountRevision=JSON.stringify([state.mountedFolders,state.workbench.fs.entries.filter((e:any)=>e.mounted).map((e:any)=>[e.path,e.version,e.readOnly])]);return {...data,state,mountRevision}};
+ for(let i=0;i<5;i++){const data=await native().ReadWorkspace();if(data.state){const cleaned=retireUnusedStarterAgents(data.state);if(cleaned!==data.state){try{await native().CommitWorkspace(data.revision,JSON.stringify(cleaned))}catch(e){if(!String(e).includes('Revision conflict'))throw e}continue}const state=await hydrateMounts(data.state);const mountRevision=JSON.stringify([state.mountedFolders,state.workbench.fs.entries.filter((e:any)=>e.mounted).map((e:any)=>[e.path,e.version,e.readOnly])]);return {...data,state,mountRevision}};
  try{return await native().CommitWorkspace(-1,JSON.stringify(normalizeWorkbench(initialSpace())))}catch(e){if(!String(e).includes('Revision conflict'))throw e}}
  throw Error('Workspace is busy. Try again.')
 }
