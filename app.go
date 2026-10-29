@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"encoding/base64"
+	"github.com/dmikey/away-agent-os/desktop/internal/cloud"
 	"github.com/dmikey/away-agent-os/desktop/internal/credentials"
 	"github.com/dmikey/away-agent-os/desktop/internal/gateway"
 	"github.com/dmikey/away-agent-os/desktop/internal/guestproto"
@@ -27,6 +28,7 @@ import (
 
 // App exposes narrow native bindings only to the bundled frontend. It never loads remote UI.
 type App struct {
+	cloud       *cloud.Client
 	folders     *sharedfolders.Registry
 	folderPicks map[string]string
 	terminalMu  sync.Mutex

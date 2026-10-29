@@ -132,3 +132,10 @@ This is a working development prototype, not a completed security audit. Passing
 ## Third-party software
 
 Application code is MIT-licensed. Vendored Code-Hex/vz retains its upstream MIT license and a documented Objective-C class-name compatibility patch. Alpine packages, Linux and standalone CPython retain their respective licenses. Source artifacts and corresponding source/build recipes are identified in `sandbox/SOURCES.md`. Generated guest images and binary release archives are excluded from Git.
+
+
+### Cloud infrastructure (operator preview)
+
+Away now includes a Go control plane for operator-managed Akash infrastructure, plus a Cloud connection panel in the Mac app. It supports system-browser OIDC sign-in, Keychain-backed sessions, resource-plan review, provider quotes, deployment closure and durable recovery without repeating paid creates. Infrastructure credentials stay with the operator.
+
+**Cloud agent execution is not enabled.** Worker attestation, remote sandbox execution and durable agent turns are still release gates. The preview creates no resources by default and uploads no workspace data. See the [operator setup and security boundaries](docs/cloud/README.md) before enabling infrastructure provisioning.
